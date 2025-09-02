@@ -1,0 +1,37 @@
+{
+  "name": "node-red-syslog",
+  "version": "1.2.2",
+  "description": "Redis stream consumer with conditional acknowledgments and resource management",
+  "main": "index.js",
+  "keywords": [
+    "node-red",
+    "redis",
+    "stream",
+    "ack",
+    "syslog"
+  ],
+  "dependencies": {
+    "redis": "^5.6.1",
+    "pidusage": "^4.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ibs-source/syslog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ibs-source/syslog/issues"
+  },
+  "homepage": "https://github.com/ibs-source/syslog#readme",
+  "node-red": {
+    "nodes": {
+      "redis-syslog-resource-manager": "src/node-red/configuration.js",
+      "redis-syslog-consumer": "src/node-red/consumer.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

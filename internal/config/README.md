@@ -1,103 +1,30 @@
-# Syslog Consumer (Go)
+# internal/config
 
-Enterprise-grade technical documentation for the Go consumer. This service reads messages from Redis Streams, processes them through a lock-free pipeline, and publishes them to MQTT with reliability controls (retries, DLQ, backpressure) protected by a circuit breaker. It exposes health/readiness/liveness endpoints and logs metrics snapshots in debug mode.
+Configuration module for the Syslog Consumer. It loads, merges, and validates settings from defaults, environment variables, and CLI flags, then exposes a single strongly-typed `Config` used across the application.
 
-Contents
+Scope
 
-- Executive Summary
-- Architecture
-- End-to-End Data Flow
-- Key Features
-- Requirements
-- Build
-- Quickstart
-- Configuration (ENV, Flags, Description)
-- Health, Readiness, Liveness
-- Security
-- Performance & Concurrency
-- Observability & Metrics
-- Operations (shutdown, CPU affinity)
-- Troubleshooting
-- License
+- Define the configuration schema (App, Redis, MQTT, Pipeline, Retry, DLQ, Circuit Breaker, Metrics, Health, Resource).
+- Register and parse CLI flags.
+- Load defaults, apply environment variables, then override with flags (strict precedence).
+- Normalize/derive values (e.g., buffer size power-of-two, generated MQTT ClientID).
+- Validate resulting configuration and return errors if invalid.
 
-Executive Summary
-This service:
+Precedence & Load Flow
 
-- Consumes messages from a Redis Stream (XREADGROUP) with consumer group management.
-- Publishes messages to MQTT (configurable QoS, mTLS recommended).
-- Implements retry with exponential backoff and optional DLQ.
-- Applies backpressure with configurable drop policies.
-- Protects publish path with a circuit breaker.
-- Exposes HTTP endpoints for health/readiness/liveness.
-- Logs metrics snapshots when LOG_LEVEL=debug.
+1. RegisterFlags()
+2. GetDefaults()
+3. LoadFromEnvironment(cfg) // env overrides defaults
+4. ApplyFlags(cfg) // flags override env
+5. cfg.Validate()
 
-Architecture
-Primary components (internal/_, pkg/_):
+Key Behaviors & Derivations
 
-- cmd/consumer: application bootstrap (config, logger, Redis/MQTT clients, processor, health server).
-- internal/config: configuration loading (defaults → env → flags) and validation.
-- internal/logger: Logrus adapter implementing a common logging interface.
-- internal/redis: Redis Streams client (go-redis v9) with conversion helpers and retry.
-- internal/mqtt: MQTT client (Eclipse Paho) with lock-free handler registry and secure TLS.
-- internal/processor: lock-free pipeline (ringbuffer + worker pool), backpressure, retry/DLQ, Redis claim/drain.
-- internal/runtime: best-effort process CPU affinity (Linux).
-- internal/domain: domain types (Message, AckMessage) and buffer pool.
-- internal/ports: “ports” interfaces to decouple implementations.
-- pkg/ringbuffer: generic lock-free ring buffer.
-- pkg/circuitbreaker: simple circuit breaker implementation.
-- pkg/jsonx: JSON helpers optimized for low allocations.
-
-End-to-End Data Flow
-
-1. Consumer Group: create/ensure Redis stream and consumer group.
-2. Consume: processor reads batches via XREADGROUP.
-3. Buffering: messages enter a lock-free ring buffer.
-4. Processing: worker pool concurrently processes and publishes to MQTT.
-5. Publish: payload is wrapped and published to configured topic behind a circuit breaker.
-6. Ack: an external service publishes an ack to the ack topic; processor XACKs and XDELs in Redis.
-7. Retry/DLQ: failures are retried with backoff; after max attempts, go to DLQ if enabled.
-8. Backpressure: when buffer is near capacity, apply drop policy (oldest|newest|none).
-
-Key Features
-
-- Lock-free pipeline with generic ring buffer and worker pool.
-- Backpressure with threshold and drop policy.
-- Retry with exponential backoff; optional DLQ publishing.
-- Circuit breaker with configurable thresholds.
-- MQTT TLS: optional user-prefix extraction from client certificate CN.
-- Health HTTP server with /health, /healthz, /heathz (alias), /ready, /live.
-- Metrics snapshots logged when LOG_LEVEL=debug.
-
-Requirements
-
-- Go 1.21+ (recommended).
-- Redis reachable (standalone/sentinel/cluster via UniversalClient).
-- MQTT broker (e.g., 8883 with TLS mTLS for production).
-- Certificates for mTLS unless intentionally disabled for development.
-
-Build
-
-- go build -o bin/consumer ./cmd/consumer
-- Tests: go test ./...
-
-Quickstart
-Local (TLS disabled for development only):
-
-- export MQTT_TLS_ENABLED=false
-- export MQTT_BROKERS=tcp://localhost:1883
-- export REDIS_ADDRESSES=localhost:6379
-- go build -o bin/consumer ./cmd/consumer
-- ./bin/consumer --log-level=debug
-
-TLS mTLS example:
-
-- export MQTT_BROKERS=ssl://broker.example.com:8883
-- export MQTT_CA_CERT=/path/ca.crt
-- export MQTT_CLIENT_CERT=/path/client.crt
-- export MQTT_CLIENT_KEY=/path/client.key
-- (Optional) export MQTT_USE_USER_PREFIX=true
-- export REDIS_ADDRESSES=redis1:6379,redis2:6379
-- ./bin/consumer --mqtt-qos=1 --log-format=json
+- Pipeline buffer size is rounded up to the next power of two.
+- MQTT ClientID defaults to `syslog-consumer-<hostname>-<pid>`.
+- MQTT TLS is auto-enabled when broker URL includes port 8883 (when provided via `--mqtt-broker`).
+- MQTT TLS ServerName inferred from broker URL if not explicitly set.
+- Redis “NOGROUP” conditions are handled gracefully by clients (group auto-create when missing).
 
 Configuration (ENV, Flags, Description)
 Precedence: defaults → environment variables → CLI flags.
@@ -245,64 +172,17 @@ Resource Management
 | RESOURCE_HISTORY_WINDOW | | 100 | History window size. |
 | RESOURCE_PREDICTION_HORIZON | | 30s | Prediction horizon. |
 
-Health, Readiness, Liveness
+Validation
 
-- Port: HEALTH_PORT (default 8080)
-- Endpoints:
-  - /health, /healthz, /heathz: checks Redis (Ping), MQTT (IsConnected), and processor state.
-  - /ready: OK only when processor is running.
-  - /live: always OK (process liveness).
-- Per-component timeouts: HEALTH_REDIS_TIMEOUT, HEALTH_MQTT_TIMEOUT.
+- Ensures values are within safe/expected ranges (e.g., QoS ∈ {0,1,2}).
+- Verifies mandatory values for production (e.g., TLS files when MQTT TLS is enabled).
+- Normalizes durations and sizes to avoid overflow or invalid states.
 
-Security
+Usage (from cmd/consumer)
 
-- MQTT mTLS recommended in production (CA + client cert/key). ServerName is inferred from broker URL if not set.
-- InsecureSkipVerify is never enabled automatically; use only for isolated test environments.
-- Optional topic user-prefix: if MQTT_USE_USER_PREFIX=true and TLS is enabled, the CN from the client certificate is used as a topic prefix.
-
-Performance & Concurrency
-
-- Lock-free ring buffer with capacity auto-rounded to next power of two.
-- Worker pool with lock-free queue and channel fallback on overflow.
-- Backpressure:
-  - oldest: make room by dropping the oldest messages (recommended for real-time streams).
-  - newest: reject new inserts and count backpressure drops.
-  - none: no drops; risk of timeouts or full queues.
-- Zero-copy path for already-encoded JSON payloads when possible.
-
-Observability & Metrics
-
-- With LOG_LEVEL=debug, metrics snapshots are logged periodically (throughput, publish rate, error rate, active workers, queue depth, buffer utilization, etc.).
-- Internal counters for received/published/acked/dropped, Redis/MQTT errors, processing/publish/ack times (ns aggregate).
-- For Prometheus export, add an external HTTP exporter/handler that reads internal metrics (not provided here).
-
-Operations
-Graceful Shutdown:
-
-- Signals: SIGINT/SIGTERM → cancel context → stop processor → shutdown health server → MQTT disconnect (WriteTimeout, capped by ShutdownTimeout) → close Redis → wait for goroutines.
-  CPU Affinity (Linux):
-- PIPELINE_CPU_AFFINITY applies best-effort process-level affinity (warns on failure; no-op on non-Linux).
-
-Troubleshooting
-
-- Cannot connect to MQTT:
-  - Verify broker URL and port. Port 8883 implies TLS.
-  - Check CA/Client cert/key and ServerName.
-  - Increase MQTT_CONNECT_TIMEOUT or enable debug logs.
-- Messages not acknowledged:
-  - The MQTT-side service must publish acknowledgments like {"id":"...", "ack":true|false} to MQTT_SUBSCRIBE_TOPIC.
-  - Ensure the Redis XREADGROUP ID is passed as id.
-- High backpressure:
-  - Increase PIPELINE_BUFFER_SIZE (power of two) and/or Batch/Flush, adjust drop policy, increase MaxWorkers.
-- Redis NOGROUP:
-  - The client auto-creates the group if missing; ensure permissions and stream name are correct.
-
-License
-
-- See LICENSE at repo root.
-
-Additional Documentation
-
-Note on package naming: Some Go files import internal/ports with the alias "core". The canonical package is internal/ports; documentation refers to these as "ports" interfaces.
-
-- Each main Go folder contains a dedicated README.md describing purpose, API, flows, configuration, and operational notes.
+```go
+cfg, err := config.Load()
+if err != nil {
+  // handle validation error
+}
+```

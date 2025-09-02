@@ -1,0 +1,53 @@
+<script type="text/x-red" data-template-name="redis-syslog-consumer">
+  <div class="form-row">
+    <label for="node-input-name">Name</label>
+    <input type="text" id="node-input-name" placeholder="Optional label" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-url">Redis URL</label>
+    <input type="text" id="node-input-url" placeholder="redis://localhost:6379" required />
+  </div>
+  <div class="form-row">
+    <label for="node-input-stream">Stream Key</label>
+    <input type="text" id="node-input-stream" placeholder="syslog" required />
+  </div>
+  <div class="form-row">
+    <label for="node-input-resource">Resource Manager</label>
+    <select id="node-input-resource" class="node-config-input" required></select>
+  </div>
+</script>
+
+<script type="text/x-red" data-help-name="redis-syslog-consumer">
+  <p><strong>Redis Syslog Consumer</strong> reads a Redis stream and emits messages.</p>
+  <p>To acknowledge & delete, inject <code>{_redisId, _redisAck}</code> back into this node.</p>
+</script>
+
+<script type="text/javascript">
+  RED.nodes.registerType('redis-syslog-consumer', {
+    category: 'Syslog',
+    color: '#a6bbcf',
+    defaults: {
+      name: {
+        value: ""
+      },
+      url: {
+        value: "redis://127.0.0.1:6379",
+        required: true
+      },
+      stream: {
+        value: "syslog",
+        required: true
+      },
+      resource: {
+        type: "redis-syslog-resource-manager",
+        required: true
+      }
+    },
+    inputs: 1,
+    outputs: 2,
+    icon: "font-awesome/fa-database",
+    label: function () {
+      return this.name || this.stream;
+    }
+  });
+</script>

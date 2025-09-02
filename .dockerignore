@@ -1,0 +1,8 @@
+Dockerfile
+/certificate
+/testdata
+.git
+.env
+.gitignore
+.dockerignore
+.json

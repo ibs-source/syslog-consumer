@@ -1,0 +1,94 @@
+<script type="text/x-red" data-template-name="redis-syslog-resource-manager">
+  <div class="form-row">
+    <label for="node-config-input-name">Name</label>
+    <input type="text" id="node-config-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-maxConcurrency">Max Concurrency</label>
+    <input type="number" id="node-config-input-maxConcurrency" placeholder="10" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-minConcurrency">Min Concurrency</label>
+    <input type="number" id="node-config-input-minConcurrency" placeholder="1" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-samplingCount">Sampling Size</label>
+    <input type="number" id="node-config-input-samplingCount" placeholder="10" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-samplingIntervalMs">Sampling Interval (ms)</label>
+    <input type="number" id="node-config-input-samplingIntervalMs" placeholder="5000" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-upperCpuThresholdPercent">Upper CPU % </label>
+    <input type="number" id="node-config-input-upperCpuThresholdPercent" placeholder="80" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-lowerCpuThresholdPercent">Lower CPU % </label>
+    <input type="number" id="node-config-input-lowerCpuThresholdPercent" placeholder="30" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-upperMemThresholdPercent">Upper RAM % </label>
+    <input type="number" id="node-config-input-upperMemThresholdPercent" placeholder="80" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-lowerMemThresholdPercent">Lower RAM % </label>
+    <input type="number" id="node-config-input-lowerMemThresholdPercent" placeholder="30" />
+  </div>
+</script>
+
+
+<script type="text/x-red" data-help-name="redis-syslog-resource-manager">
+  <p><strong>Resource Manager Config</strong></p>
+  <p>Configure global concurrency scaling based on CPU and RAM usage.</p>
+</script>
+
+<script type="text/javascript">
+  RED.nodes.registerType('redis-syslog-resource-manager', {
+    category: 'config',
+    color: '#f0f0f0',
+    defaults: {
+      name: {
+        value: ""
+      },
+      maxConcurrency: {
+        value: 10,
+        validate: RED.validators.number()
+      },
+      minConcurrency: {
+        value: 1,
+        validate: RED.validators.number()
+      },
+      samplingCount: {
+        value: 10,
+        validate: RED.validators.number()
+      },
+      samplingIntervalMs: {
+        value: 5000,
+        validate: RED.validators.number()
+      },
+      upperCpuThresholdPercent: {
+        value: 80,
+        validate: RED.validators.number()
+      },
+      lowerCpuThresholdPercent: {
+        value: 30,
+        validate: RED.validators.number()
+      },
+      upperMemThresholdPercent: {
+        value: 80,
+        validate: RED.validators.number()
+      },
+      lowerMemThresholdPercent: {
+        value: 30,
+        validate: RED.validators.number()
+      }
+    },
+    label: function () {
+      return this.name || "Resource Manager";
+    }
+  });
+</script>
