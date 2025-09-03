@@ -26,14 +26,6 @@ func safeUint64ToInt(u uint64) int {
 	return int(u)
 }
 
-// safeIntToUint64 converts n to uint64, clamping negatives to zero.
-func safeIntToUint64(n int) uint64 {
-	if n <= 0 {
-		return 0
-	}
-	return uint64(n)
-}
-
 // RingBuffer is a lock-free multi-producer multi-consumer ring buffer
 type RingBuffer[T any] struct {
 	_              padding
@@ -70,47 +62,6 @@ func New[T any](capacity uint32) *RingBuffer[T] {
 	}
 
 	return rb
-}
-
-// Internal availability helpers to reduce branching in batch ops (keeps lock-free semantics).
-func (rb *RingBuffer[T]) availWrite(writePos, readPos uint64) int {
-	capU := uint64(rb.capacity)
-	used := writePos - readPos
-	if used > capU {
-		used = capU
-	}
-	return safeUint64ToInt(capU - used)
-}
-
-func (rb *RingBuffer[T]) availRead(writePos, readPos uint64) int {
-	capU := uint64(rb.capacity)
-	u := writePos - readPos
-	if u > capU {
-		u = capU
-	}
-	return safeUint64ToInt(u)
-}
-
-func (rb *RingBuffer[T]) ensureWriteAvailability(writePos *uint64, readPos *uint64) int {
-	available := rb.availWrite(*writePos, *readPos)
-	if available > 0 {
-		return available
-	}
-	// Update cached read position and recompute
-	rb.cachedReadPos.Store(rb.readPos.Load())
-	*readPos = rb.cachedReadPos.Load()
-	return rb.availWrite(*writePos, *readPos)
-}
-
-func (rb *RingBuffer[T]) ensureReadAvailability(readPos *uint64, writePos *uint64) int {
-	available := rb.availRead(*writePos, *readPos)
-	if available > 0 {
-		return available
-	}
-	// Update cached write position and recompute
-	rb.cachedWritePos.Store(rb.writePos.Load())
-	*writePos = rb.cachedWritePos.Load()
-	return rb.availRead(*writePos, *readPos)
 }
 
 // Put attempts to put an item into the ring buffer
@@ -180,9 +131,16 @@ func (rb *RingBuffer[T]) Get() *T {
 
 	// Read the item (atomically swap to nil)
 	idx := readPos & uint64(rb.mask)
+	retryCount := 0
+	const maxRetries = 1000 // Prevent infinite loops
 	for {
 		if it := rb.buffer[idx].Swap(nil); it != nil {
 			return it
+		}
+		retryCount++
+		if retryCount > maxRetries {
+			// Prevent infinite loop - return nil to indicate failure
+			return nil
 		}
 		runtime.Gosched()
 	}
@@ -195,35 +153,13 @@ func (rb *RingBuffer[T]) TryPutBatch(items []*T) int {
 		return 0
 	}
 
-	var writePos, readPos uint64
-	var count int
-
-	for {
-		writePos = rb.writePos.Load()
-		readPos = rb.cachedReadPos.Load()
-
-		available := rb.ensureWriteAvailability(&writePos, &readPos)
-		if available <= 0 {
-			return 0
+	count := 0
+	for i := 0; i < len(items); i++ {
+		if !rb.Put(items[i]) {
+			break // Buffer full
 		}
-
-		count = len(items)
-		if count > available {
-			count = available
-		}
-
-		if rb.writePos.CompareAndSwap(writePos, writePos+safeIntToUint64(count)) {
-			break
-		}
-		runtime.Gosched()
+		count++
 	}
-
-	// Write the items (exclusive ownership per claimed slot)
-	for i := 0; i < count; i++ {
-		idx := (writePos + safeIntToUint64(i)) & uint64(rb.mask)
-		rb.buffer[idx].Store(items[i])
-	}
-
 	return count
 }
 
@@ -234,61 +170,16 @@ func (rb *RingBuffer[T]) TryGetBatch(items []*T) int {
 		return 0
 	}
 
-	var readPos, writePos uint64
-
-	for {
-		readPos = rb.readPos.Load()
-		writePos = rb.cachedWritePos.Load()
-
-		available := rb.ensureReadAvailability(&readPos, &writePos)
-		if available <= 0 {
-			return 0
+	count := 0
+	for i := 0; i < len(items); i++ {
+		item := rb.Get()
+		if item == nil {
+			break // Buffer empty
 		}
-
-		limit := len(items)
-		if limit > available {
-			limit = available
-		}
-
-		// Determine contiguous ready items (non-nil) starting at readPos.
-		ready := rb.readyCount(readPos, limit)
-		if ready == 0 {
-			// Items announced but not yet visible; yield and retry.
-			runtime.Gosched()
-			continue
-		}
-
-		if rb.readPos.CompareAndSwap(readPos, readPos+safeIntToUint64(ready)) {
-			// Drain the ready items
-			rb.drainRead(items, readPos, ready)
-			return ready
-		}
-
-		runtime.Gosched()
+		items[i] = item
+		count++
 	}
-}
-
-// readyCount returns the number of contiguous non-nil items available from readPos up to limit.
-func (rb *RingBuffer[T]) readyCount(readPos uint64, limit int) int {
-	ready := 0
-	for i := 0; i < limit; i++ {
-		idx := (readPos + safeIntToUint64(i)) & uint64(rb.mask)
-		if rb.buffer[idx].Load() == nil {
-			break
-		}
-		ready++
-	}
-	return ready
-}
-
-// drainRead drains 'ready' items starting at readPos into items slice, swapping each slot to nil.
-func (rb *RingBuffer[T]) drainRead(items []*T, readPos uint64, ready int) {
-	for i := 0; i < ready; i++ {
-		idx := (readPos + safeIntToUint64(i)) & uint64(rb.mask)
-		if it := rb.buffer[idx].Swap(nil); it != nil {
-			items[i] = it
-		}
-	}
+	return count
 }
 
 // Size returns the current number of items in the buffer

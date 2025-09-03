@@ -124,7 +124,7 @@ func startSPMCProducer(q *MsgQueue, totalMessages int, wg *sync.WaitGroup) {
 	}()
 }
 
-// startSPMCConsumers starts multiple consumer goroutines.
+// startSPMCConsumers starts multiple consumer goroutines with race condition fix.
 func startSPMCConsumers(
 	q *MsgQueue, consumers int, remaining *atomic.Int64, errFlag *atomic.Int32, wg *sync.WaitGroup,
 ) {
@@ -133,15 +133,21 @@ func startSPMCConsumers(
 		go func() {
 			defer wg.Done()
 			scratch := make([]*domain.Message, 32)
+			emptyAttempts := 0
+			const maxEmptyAttempts = 1000
+
 			for {
 				n := q.TryGetBatch(scratch)
 				if n == 0 {
-					if remaining.Load() <= 0 {
+					emptyAttempts++
+					if remaining.Load() <= 0 || emptyAttempts > maxEmptyAttempts {
 						return
 					}
 					runtime.Gosched()
 					continue
 				}
+
+				emptyAttempts = 0 // Reset counter on successful read
 
 				// Process messages
 				for i := 0; i < n; i++ {

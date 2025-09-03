@@ -752,13 +752,13 @@ func (p *StreamProcessor) handleAckMessage(topic string, payload []byte) {
 		return
 	}
 
-	p.logger.Info("ACK parsed",
+	p.logger.Trace("ACK parsed",
 		ports.Field{Key: "redisID", Value: ack.ID},
 		ports.Field{Key: "ack", Value: ack.Ack},
 	)
 
 	if ack.Ack {
-		p.logger.Info("Acking in Redis",
+		p.logger.Trace("Acking in Redis",
 			ports.Field{Key: "stream", Value: p.cfg.Redis.StreamName},
 			ports.Field{Key: "group", Value: p.cfg.Redis.ConsumerGroup},
 			ports.Field{Key: "redisID", Value: ack.ID},
@@ -780,7 +780,7 @@ func (p *StreamProcessor) handleAckMessage(topic string, payload []byte) {
 		}
 
 		p.metrics.MessagesAcked.Add(1)
-		p.logger.Info("Redis XACK success", ports.Field{Key: "redisID", Value: ack.ID})
+		p.logger.Debug("Redis XACK success", ports.Field{Key: "redisID", Value: ack.ID})
 
 		// Delete the message from the stream
 		if err := p.redisClient.DeleteMessages(p.ctx, p.cfg.Redis.StreamName, ack.ID); err != nil {
@@ -789,7 +789,7 @@ func (p *StreamProcessor) handleAckMessage(topic string, payload []byte) {
 				ports.Field{Key: "error", Value: err},
 			)
 		} else {
-			p.logger.Info("Redis XDEL success", ports.Field{Key: "redisID", Value: ack.ID})
+			p.logger.Debug("Redis XDEL success", ports.Field{Key: "redisID", Value: ack.ID})
 		}
 	} else {
 		// Negative acknowledgment - message will be retried

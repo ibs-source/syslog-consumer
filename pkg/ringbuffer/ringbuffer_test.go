@@ -320,11 +320,8 @@ func TestRingBufferConcurrency_BatchOperations(t *testing.T) {
 
 	done := make(chan struct{})
 
-	startBatchProducers(rb, 5, 20, 10, &putCount, &wg)
+	startBatchProducers(rb, 5, 20, 10, &putCount, &wg, done)
 	startBatchConsumers(rb, 5, 10, &getCount, done, &wg)
-
-	time.Sleep(100 * time.Millisecond)
-	close(done)
 
 	wg.Wait()
 
@@ -456,11 +453,24 @@ func startBatchProducers(
 	producers, rounds, batchSize int,
 	putCount *atomic.Int64,
 	wg *sync.WaitGroup,
+	done chan struct{},
 ) {
+	var producersFinished atomic.Int64
+	wg.Add(producers)
 	for i := 0; i < producers; i++ {
-		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
+			defer func() {
+				// Signal completion when all producers finish
+				if producersFinished.Add(1) == int64(producers) {
+					select {
+					case <-done:
+						// Already closed
+					default:
+						close(done)
+					}
+				}
+			}()
 			for round := 0; round < rounds; round++ {
 				items := make([]*int, batchSize)
 				for j := 0; j < batchSize; j++ {
@@ -489,20 +499,28 @@ func startBatchConsumers(
 	done <-chan struct{},
 	wg *sync.WaitGroup,
 ) {
+	wg.Add(consumers)
 	for i := 0; i < consumers; i++ {
-		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			results := make([]*int, batchSize)
 			for {
-				select {
-				case <-done:
-					return
-				default:
-					count := rb.TryGetBatch(results)
-					if count > 0 {
-						getCount.Add(int64(count))
-					} else {
+				count := rb.TryGetBatch(results)
+				if count > 0 {
+					getCount.Add(int64(count))
+				} else {
+					// Check if production is done
+					select {
+					case <-done:
+						// Producer finished, drain any remaining messages
+						for {
+							count := rb.TryGetBatch(results)
+							if count == 0 {
+								return // No more messages
+							}
+							getCount.Add(int64(count))
+						}
+					default:
 						runtime.Gosched()
 					}
 				}
