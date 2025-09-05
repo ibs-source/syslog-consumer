@@ -150,6 +150,7 @@ func defaultPipeline() PipelineConfig {
 		ProcessingTimeout:        5 * time.Second,
 		NumaAware:                false,
 		CPUAffinity:              []int{},
+		WorkerQueueSize:          nextPowerOf2(16384),
 		BackpressureThreshold:    0.8,
 		DropPolicy:               "oldest",
 		FlushInterval:            100 * time.Millisecond,

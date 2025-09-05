@@ -175,8 +175,9 @@ type PipelineConfig struct {
 	ProcessingTimeout time.Duration
 
 	// Performance tuning
-	NumaAware   bool
-	CPUAffinity []int
+	NumaAware       bool
+	CPUAffinity     []int
+	WorkerQueueSize int // Capacity of the worker fast-path queue (power of 2)
 
 	// Backpressure
 	BackpressureThreshold    float64
@@ -376,6 +377,10 @@ func loadPipelineConfig() PipelineConfig {
 	// Ensure buffer size is power of 2
 	bufferSize = nextPowerOf2(bufferSize)
 
+	// Worker fast-path queue capacity (power of 2)
+	workerQueueSize := getIntEnv("PIPELINE_WORKER_QUEUE_SIZE", 16384)
+	workerQueueSize = nextPowerOf2(workerQueueSize)
+
 	return PipelineConfig{
 		BufferSize:               bufferSize,
 		BatchSize:                getIntEnv("PIPELINE_BATCH_SIZE", 1000),
@@ -383,6 +388,7 @@ func loadPipelineConfig() PipelineConfig {
 		ProcessingTimeout:        getDurationEnv("PIPELINE_PROCESSING_TIMEOUT", 5*time.Second),
 		NumaAware:                getBoolEnv("PIPELINE_NUMA_AWARE", false),
 		CPUAffinity:              getIntSliceEnv("PIPELINE_CPU_AFFINITY", []int{}),
+		WorkerQueueSize:          workerQueueSize,
 		BackpressureThreshold:    getFloatEnv("PIPELINE_BACKPRESSURE_THRESHOLD", 0.8),
 		DropPolicy:               getEnv("PIPELINE_DROP_POLICY", "oldest"),
 		FlushInterval:            getDurationEnv("PIPELINE_FLUSH_INTERVAL", 100*time.Millisecond),

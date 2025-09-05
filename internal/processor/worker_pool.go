@@ -195,6 +195,15 @@ func (p *WorkerPool) SetMsgHandler(h WorkerTaskHandler) {
 	p.msgHandler = h
 }
 
+// SetMsgQueueCapacity sets the capacity of the lock-free fast-path message queue.
+// Must be called before Start(); capacity must be a power of two.
+func (p *WorkerPool) SetMsgQueueCapacity(capacity uint32) {
+	if capacity == 0 {
+		return
+	}
+	p.msgQueue = NewMsgQueue(capacity)
+}
+
 // SubmitMsg enqueues a message into the lock-free queue for processing.
 // Returns ErrPoolStopped if the pool is stopped, or ErrQueueFull if the queue is full.
 func (p *WorkerPool) SubmitMsg(msg *domain.Message) error {

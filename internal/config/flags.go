@@ -429,6 +429,7 @@ func applyAppFlags(cfg *Config) {
 
 func registerPipelineCoreFlags() {
 	flag.Int("pipeline-buffer-size", -1, "Ring buffer size (will be rounded up to next power of 2)")
+	flag.Int("pipeline-worker-queue-size", -1, "Worker fast-path queue size (power of 2, e.g., 16384)")
 	flag.Int("pipeline-batch-size", -1, "Pipeline batch size")
 	flag.Int("pipeline-batch-timeout", -1, "Batch timeout in seconds")
 	flag.Int("pipeline-processing-timeout", -1, "Processing timeout in seconds")
@@ -451,6 +452,9 @@ func applyPipelineCoreFlags(cfg *Config) {
 func applyPipelineCoreSizes(cfg *Config) {
 	if v := getFlagInt("pipeline-buffer-size"); v > 0 {
 		cfg.Pipeline.BufferSize = nextPowerOf2(v)
+	}
+	if v := getFlagInt("pipeline-worker-queue-size"); v > 0 {
+		cfg.Pipeline.WorkerQueueSize = nextPowerOf2(v)
 	}
 	if v := getFlagInt("pipeline-batch-size"); v > 0 {
 		cfg.Pipeline.BatchSize = v

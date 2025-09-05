@@ -230,6 +230,21 @@ func validateHealth(c *Config) error {
 // --- Pipeline ---
 
 func validatePipeline(c *Config) error {
+	if err := validatePipelineBufferAndBatch(c); err != nil {
+		return err
+	}
+	if err := validatePipelineWorkerQueue(c); err != nil {
+		return err
+	}
+	if err := validatePipelineBackpressureAndPolicy(c); err != nil {
+		return err
+	}
+	return nil
+}
+
+// split helpers to reduce cyclomatic complexity of validatePipeline
+
+func validatePipelineBufferAndBatch(c *Config) error {
 	if c.Pipeline.BufferSize <= 0 {
 		return fmt.Errorf("pipeline buffer size must be positive")
 	}
@@ -246,6 +261,31 @@ func validatePipeline(c *Config) error {
 	if c.Pipeline.BatchSize > c.Pipeline.BufferSize {
 		return fmt.Errorf("pipeline batch size cannot exceed buffer size")
 	}
+	return nil
+}
+
+func validatePipelineWorkerQueue(c *Config) error {
+	// Validate worker fast-path queue capacity (avoid silent drops on empty queue)
+	if c.Pipeline.WorkerQueueSize <= 0 {
+		return fmt.Errorf("pipeline worker queue size must be positive")
+	}
+	if c.Pipeline.WorkerQueueSize > int(math.MaxUint32) {
+		return fmt.Errorf("pipeline worker queue size exceeds 32-bit limit")
+	}
+	if !isPowerOfTwo(c.Pipeline.WorkerQueueSize) {
+		return fmt.Errorf("pipeline worker queue size must be a power of 2")
+	}
+	if c.Pipeline.WorkerQueueSize < c.Pipeline.BatchSize {
+		return fmt.Errorf(
+			"pipeline worker queue size (%d) must be >= batch size (%d)",
+			c.Pipeline.WorkerQueueSize,
+			c.Pipeline.BatchSize,
+		)
+	}
+	return nil
+}
+
+func validatePipelineBackpressureAndPolicy(c *Config) error {
 	if c.Pipeline.BackpressureThreshold <= 0 || c.Pipeline.BackpressureThreshold > 1 {
 		return fmt.Errorf("backpressure threshold must be between 0 and 1")
 	}

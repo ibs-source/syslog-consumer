@@ -175,6 +175,13 @@ func NewStreamProcessor(
 
 func (p *StreamProcessor) initWorkerPool() {
 	p.workerPool = NewWorkerPoolWithParent(p.ctx, p.cfg.Resource.MinWorkers, p.cfg.Resource.MaxWorkers)
+
+	// Configure lock-free fast-path queue capacity from config (must be set before Start)
+	capU := nonNegIntToUint32(p.cfg.Pipeline.WorkerQueueSize)
+	if capU > 0 {
+		p.workerPool.SetMsgQueueCapacity(capU)
+	}
+
 	// Set lock-free message handler fast-path
 	p.workerPool.SetMsgHandler(func(m *domain.Message) {
 		if m == nil {
