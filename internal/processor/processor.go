@@ -444,15 +444,6 @@ func (p *StreamProcessor) submitViaFastPath(msg *domain.Message) {
 	p.metrics.MessagesDropped.Add(1)
 }
 
-func (p *StreamProcessor) submitViaChannel(msg *domain.Message) {
-	if err := p.workerPool.Submit(p.createMessageTask(msg)); err != nil {
-		p.logger.Error("Failed to submit message task",
-			ports.Field{Key: "messageID", Value: msg.ID},
-			ports.Field{Key: "error", Value: err})
-		p.metrics.MessagesDropped.Add(1)
-	}
-}
-
 // submitMessageTask submits a message processing task to the worker pool
 func (p *StreamProcessor) submitMessageTask(msg *domain.Message) {
 	if p.shouldSkipSubmit() {
@@ -477,14 +468,6 @@ func (p *StreamProcessor) submitMessageTask(msg *domain.Message) {
 	p.logger.Error("Worker pool message handler not configured, dropping message",
 		ports.Field{Key: "messageID", Value: msg.ID})
 	p.metrics.MessagesDropped.Add(1)
-}
-
-// createMessageTask creates a task for processing a message (short closure)
-func (p *StreamProcessor) createMessageTask(msg *domain.Message) func() {
-	return func() {
-		p.logger.Debug("Executing message task", ports.Field{Key: "messageID", Value: msg.ID})
-		p.processMessage(msg)
-	}
 }
 
 // ensureCapacityForIncoming ensures capacity for n incoming messages by dropping oldest if configured.
