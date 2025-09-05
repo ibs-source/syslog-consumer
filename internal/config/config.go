@@ -175,10 +175,8 @@ type PipelineConfig struct {
 	ProcessingTimeout time.Duration
 
 	// Performance tuning
-	UseZeroCopy        bool
-	PreallocateBuffers bool
-	NumaAware          bool
-	CPUAffinity        []int
+	NumaAware   bool
+	CPUAffinity []int
 
 	// Backpressure
 	BackpressureThreshold    float64
@@ -383,8 +381,6 @@ func loadPipelineConfig() PipelineConfig {
 		BatchSize:                getIntEnv("PIPELINE_BATCH_SIZE", 1000),
 		BatchTimeout:             getDurationEnv("PIPELINE_BATCH_TIMEOUT", 100*time.Millisecond),
 		ProcessingTimeout:        getDurationEnv("PIPELINE_PROCESSING_TIMEOUT", 5*time.Second),
-		UseZeroCopy:              getBoolEnv("PIPELINE_ZERO_COPY", true),
-		PreallocateBuffers:       getBoolEnv("PIPELINE_PREALLOCATE", true),
 		NumaAware:                getBoolEnv("PIPELINE_NUMA_AWARE", false),
 		CPUAffinity:              getIntSliceEnv("PIPELINE_CPU_AFFINITY", []int{}),
 		BackpressureThreshold:    getFloatEnv("PIPELINE_BACKPRESSURE_THRESHOLD", 0.8),

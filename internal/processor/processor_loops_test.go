@@ -149,6 +149,12 @@ func TestProcessMessages_TickerFlushPublishes(t *testing.T) {
 
 	// Need a worker pool running because processMessages submits to pool
 	p.workerPool = NewWorkerPool(1, 1)
+	// Configure fast-path message handler (lock-free) to align with zero-copy/lock-free architecture
+	p.workerPool.SetMsgHandler(func(m2 *domain.Message) {
+		if m2 != nil {
+			p.processMessage(m2)
+		}
+	})
 	p.workerPool.Start()
 	defer p.workerPool.Stop()
 

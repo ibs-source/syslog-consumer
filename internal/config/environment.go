@@ -383,12 +383,6 @@ func applyPipelineCoreEnv(cfg *Config) {
 }
 
 func applyPipelineTogglesEnv(cfg *Config) {
-	if val := os.Getenv("PIPELINE_ZERO_COPY"); val != "" {
-		cfg.Pipeline.UseZeroCopy = getEnvBool("PIPELINE_ZERO_COPY")
-	}
-	if val := os.Getenv("PIPELINE_PREALLOCATE"); val != "" {
-		cfg.Pipeline.PreallocateBuffers = getEnvBool("PIPELINE_PREALLOCATE")
-	}
 	if val := os.Getenv("PIPELINE_NUMA_AWARE"); val != "" {
 		cfg.Pipeline.NumaAware = getEnvBool("PIPELINE_NUMA_AWARE")
 	}

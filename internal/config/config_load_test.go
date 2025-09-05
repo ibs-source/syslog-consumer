@@ -176,8 +176,6 @@ func setPipelineEnv(t *testing.T) PipelineConfig {
 	t.Setenv("PIPELINE_BATCH_SIZE", "8")
 	t.Setenv("PIPELINE_BATCH_TIMEOUT", "1s")
 	t.Setenv("PIPELINE_PROCESSING_TIMEOUT", "2s")
-	t.Setenv("PIPELINE_ZERO_COPY", "false")
-	t.Setenv("PIPELINE_PREALLOCATE", "false")
 	t.Setenv("PIPELINE_NUMA_AWARE", "true")
 	t.Setenv("PIPELINE_CPU_AFFINITY", "0,1,2")
 	t.Setenv("PIPELINE_BACKPRESSURE_THRESHOLD", "0.7")
@@ -528,12 +526,6 @@ func assertPipelineBasics(t *testing.T, pc PipelineConfig) {
 
 func assertPipelineFlags(t *testing.T, pc PipelineConfig) {
 	t.Helper()
-	if pc.UseZeroCopy != false {
-		t.Fatalf("use zero copy: %v", pc.UseZeroCopy)
-	}
-	if pc.PreallocateBuffers != false {
-		t.Fatalf("preallocate: %v", pc.PreallocateBuffers)
-	}
 	if pc.NumaAware != true {
 		t.Fatalf("numa aware: %v", pc.NumaAware)
 	}

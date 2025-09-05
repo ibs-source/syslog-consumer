@@ -12,6 +12,7 @@ Contents
 - Build
 - Quickstart
 - Configuration (ENV, Flags, Description)
+  Note: The architecture is always lock-free and zero-copy; there are no flags or env variables to disable these.
 - Health, Readiness, Liveness
 - Security
 - Performance & Concurrency
@@ -180,8 +181,6 @@ Pipeline
 | PIPELINE_BATCH_SIZE | --pipeline-batch-size | 1000 | Batch size for processing. |
 | PIPELINE_BATCH_TIMEOUT | --pipeline-batch-timeout | 100ms | Max wait to flush partial batch. |
 | PIPELINE_PROCESSING_TIMEOUT | --pipeline-processing-timeout | 5s | Per-batch processing timeout. |
-| PIPELINE_ZERO_COPY | --pipeline-zero-copy | true | Prefer zero-copy processing. |
-| PIPELINE_PREALLOCATE | --pipeline-preallocate | true | Pre-allocate buffers. |
 | PIPELINE_NUMA_AWARE | --pipeline-numa-aware | false | NUMA awareness hint. |
 | PIPELINE_CPU_AFFINITY | --pipeline-cpu-affinity | | CPU list for process affinity (Linux best-effort). |
 | PIPELINE_BACKPRESSURE_THRESHOLD | --pipeline-backpressure-threshold | 0.8 | Buffer usage threshold (0.0-1.0). |
@@ -263,7 +262,7 @@ Security
 Performance & Concurrency
 
 - Lock-free ring buffer with capacity auto-rounded to next power of two.
-- Worker pool with lock-free queue and channel fallback on overflow.
+- Worker pool with lock-free message queue only; the processor never uses channel fallback. Saturation results in drops accounted in metrics.
 - Backpressure:
   - oldest: make room by dropping the oldest messages (recommended for real-time streams).
   - newest: reject new inserts and count backpressure drops.

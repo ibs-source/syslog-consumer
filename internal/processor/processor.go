@@ -401,11 +401,17 @@ func (p *StreamProcessor) processBatch(messages []*domain.Message) {
 	// Fast-path: batch submit to worker pool's lock-free queue
 	if p.workerPool != nil && p.workerPool.msgHandler != nil {
 		inserted := p.workerPool.SubmitBatch(messages)
-		// Fallback to legacy channel-based tasks for any remainder
+		// Drop any remainder to maintain lock-free, zero-copy behavior (no channel fallback)
 		if inserted < len(messages) {
-			for i := inserted; i < len(messages); i++ {
-				p.submitMessageTask(messages[i])
+			dropped := len(messages) - inserted
+			if dropped > 0 {
+				p.metrics.MessagesDropped.Add(uint64(dropped))
 			}
+			p.logger.Warn("Worker queue full, dropping remainder",
+				ports.Field{Key: "reason", Value: "worker-queue-full"},
+				ports.Field{Key: "inserted", Value: inserted},
+				ports.Field{Key: "dropped", Value: dropped},
+			)
 		}
 		return
 	}
@@ -427,12 +433,9 @@ func (p *StreamProcessor) submitViaFastPath(msg *domain.Message) {
 		return
 	}
 	if errors.Is(err, ErrQueueFull) {
-		if err2 := p.workerPool.Submit(p.createMessageTask(msg)); err2 != nil {
-			p.logger.Error("Failed to submit message task",
-				ports.Field{Key: "messageID", Value: msg.ID},
-				ports.Field{Key: "error", Value: err2})
-			p.metrics.MessagesDropped.Add(1)
-		}
+		p.logger.Warn("Worker queue full, dropping message",
+			ports.Field{Key: "messageID", Value: msg.ID})
+		p.metrics.MessagesDropped.Add(1)
 		return
 	}
 	p.logger.Error("Failed to submit message task",
@@ -470,8 +473,10 @@ func (p *StreamProcessor) submitMessageTask(msg *domain.Message) {
 		return
 	}
 
-	// Legacy path when worker pool exists but no fast-path handler set
-	p.submitViaChannel(msg)
+	// Legacy path when worker pool exists but no fast-path handler set: drop to maintain lock-free semantics
+	p.logger.Error("Worker pool message handler not configured, dropping message",
+		ports.Field{Key: "messageID", Value: msg.ID})
+	p.metrics.MessagesDropped.Add(1)
 }
 
 // createMessageTask creates a task for processing a message (short closure)

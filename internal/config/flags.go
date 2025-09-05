@@ -432,8 +432,6 @@ func registerPipelineCoreFlags() {
 	flag.Int("pipeline-batch-size", -1, "Pipeline batch size")
 	flag.Int("pipeline-batch-timeout", -1, "Batch timeout in seconds")
 	flag.Int("pipeline-processing-timeout", -1, "Processing timeout in seconds")
-	flag.Bool("pipeline-zero-copy", true, "Enable zero-copy pipeline")
-	flag.Bool("pipeline-preallocate", true, "Preallocate pipeline buffers")
 	flag.Bool("pipeline-numa-aware", false, "Enable NUMA awareness")
 	flag.String("pipeline-cpu-affinity", "", "Comma-separated CPU ids for affinity (e.g., 0,1,2)")
 	flag.Float64("pipeline-backpressure-threshold", -1, "Backpressure threshold (0.0-1.0)")
@@ -478,12 +476,6 @@ func applyPipelineCoreTimeouts(cfg *Config) {
 }
 
 func applyPipelineCoreToggles(cfg *Config) {
-	if f := flag.Lookup("pipeline-zero-copy"); f != nil {
-		cfg.Pipeline.UseZeroCopy = getFlagBool("pipeline-zero-copy")
-	}
-	if f := flag.Lookup("pipeline-preallocate"); f != nil {
-		cfg.Pipeline.PreallocateBuffers = getFlagBool("pipeline-preallocate")
-	}
 	if f := flag.Lookup("pipeline-numa-aware"); f != nil {
 		cfg.Pipeline.NumaAware = getFlagBool("pipeline-numa-aware")
 	}

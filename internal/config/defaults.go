@@ -148,8 +148,6 @@ func defaultPipeline() PipelineConfig {
 		BatchSize:                1000,
 		BatchTimeout:             100 * time.Millisecond,
 		ProcessingTimeout:        5 * time.Second,
-		UseZeroCopy:              true,
-		PreallocateBuffers:       true,
 		NumaAware:                false,
 		CPUAffinity:              []int{},
 		BackpressureThreshold:    0.8,
