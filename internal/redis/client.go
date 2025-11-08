@@ -11,6 +11,7 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 	"github.com/ibs-source/syslog-consumer/pkg/jsonfast"
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 )
 
 // Client manages Redis stream operations
@@ -33,6 +34,12 @@ func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 		DialTimeout:  cfg.DialTimeout,
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
+		// Explicitly disable maintenance notifications
+		// This prevents the client from sending extra commands to Redis
+		// which can add unnecessary load.
+		MaintNotificationsConfig: &maintnotifications.Config{
+			Mode: maintnotifications.ModeDisabled,
+		},
 	})
 
 	// Test connection
