@@ -1,0 +1,354 @@
+# golangci-lint ULTRA STRICT - SHOWS EVERYTHING
+# Tested configuration that shows ALL problems
+
+version: 2
+
+run:
+  timeout: 30m
+  tests: true
+  go: "1.23"
+
+linters:
+  disable-all: true
+  disable: []
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - gosec
+    - gocyclo
+    - gocognit
+    - cyclop
+    - funlen
+    - nestif
+    - lll
+    - dupl
+    - goconst
+    - thelper
+    - gocritic
+    - misspell
+    - durationcheck
+    - nilerr
+    - errorlint
+    - bodyclose
+    - prealloc
+    - forbidigo
+    - gomoddirectives
+    - gomodguard
+    - nolintlint
+
+linters-settings:
+  # ERRCHECK - check ALL errors
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  # GOSEC - maximum security
+  gosec:
+    severity: low
+    confidence: low
+    excludes:
+      - G115
+
+  # GOVET - all checks
+  govet:
+    enable-all: true
+
+  # STATICCHECK
+  staticcheck:
+    checks: ["all"]
+
+  # REVIVE - working configuration
+  revive:
+    ignore-generated-header: false
+    severity: warning
+    rules:
+      - name: exported
+        severity: warning
+      - name: package-comments
+        severity: warning
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: increment-decrement
+      - name: range
+      - name: receiver-naming
+      - name: indent-error-flow
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+      - name: bool-literal-in-expr
+      - name: constant-logical-expr
+
+  # GOCYCLO - low complexity
+  gocyclo:
+    min-complexity: 10
+
+  # GOCOGNIT - cognitive complexity
+  gocognit:
+    min-complexity: 30
+
+  # CYCLOP - cyclomatic complexity
+  cyclop:
+    max-complexity: 10
+    skip-tests: true
+
+  # FUNLEN - short functions
+  funlen:
+    lines: 60
+    statements: 40
+
+  # GOCONST - find constants
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+
+  # GOMND - magic numbers
+  mnd:
+    checks:
+      - case
+      - return
+    ignored-numbers:
+      - "0"
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "8"
+      - "10"
+      - "16"
+      - "32"
+      - "64"
+      - "100"
+      - "128"
+      - "256"
+      - "512"
+      - "1024"
+      - "2048"
+      - "4096"
+      - "65535"
+      - "2.0"
+      - "1000000000"
+      - "1000000000.0"
+
+  # GOCRITIC - enable all checks
+  gocritic:
+    enabled-checks:
+      - appendAssign
+      - appendCombine
+      - argOrder
+      - assignOp
+      - badCall
+      - badCond
+      - badLock
+      - badRegexp
+      - badSorting
+      - boolExprSimplify
+      - builtinShadow
+      - builtinShadowDecl
+      - captLocal
+      - caseOrder
+      - codegenComment
+      - commentFormatting
+      - commentedOutCode
+      - commentedOutImport
+      - defaultCaseOrder
+      - deferInLoop
+      - deferUnlambda
+      - deprecatedComment
+      - docStub
+      - dupArg
+      - dupBranchBody
+      - dupCase
+      - dupImport
+      - dupSubExpr
+      - elseif
+      - emptyFallthrough
+      - emptyStringTest
+      - equalFold
+      - evalOrder
+      - exitAfterDefer
+      - exposedSyncMutex
+      - externalErrorReassign
+      - filepathJoin
+      - flagDeref
+      - flagName
+      - hexLiteral
+      - httpNoBody
+      - hugeParam
+      - ifElseChain
+      - importShadow
+      - indexAlloc
+      - initClause
+      - mapKey
+      - methodExprCall
+      - nestingReduce
+      - newDeref
+      - nilValReturn
+      - octalLiteral
+      - offBy1
+      - paramTypeCombine
+      - preferDecodeRune
+      - preferFilepathJoin
+      - preferFprint
+      - preferStringWriter
+      - preferWriteByte
+      - ptrToRefParam
+      - rangeExprCopy
+      - rangeValCopy
+      - redundantSprint
+      - regexpMust
+      - regexpPattern
+      - regexpSimplify
+      - ruleguard
+      - singleCaseSwitch
+      - sliceClear
+      - sloppyLen
+      - sloppyReassign
+      - sloppyTypeAssert
+      - sortSlice
+      - sprintfQuotedString
+      - sqlQuery
+      - stringConcatSimplify
+      - stringXbytes
+      - switchTrue
+      - syncMapLoadAndDelete
+      - timeExprSimplify
+      - tooManyResultsChecker
+      - truncateCmp
+      - typeAssertChain
+      - typeDefFirst
+      - typeSwitchVar
+      - typeUnparen
+      - underef
+      - unlabelStmt
+      - unlambda
+      - unnamedResult
+      - unnecessaryBlock
+      - unnecessaryDefer
+      - unslice
+      - valSwap
+      - weakCond
+      - whyNoLint
+      - wrapperFunc
+      - yodaStyleExpr
+
+  # SIMPLE BUT EFFECTIVE LINTERS
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/
+
+  lll:
+    line-length: 120
+
+  misspell:
+    locale: US
+
+  nakedret:
+    max-func-lines: 5
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  dupl:
+    threshold: 50
+
+  # WHITESPACE
+  whitespace:
+    multi-if: true
+    multi-func: true
+
+  # WSL - whitespace linter
+  wsl:
+    allow-assign-and-anything: false
+    allow-multiline-assign: false
+    allow-cuddle-declarations: false
+    allow-trailing-comment: false
+    force-case-trailing-whitespace: 3
+
+  # GODOT - comments with period
+  godot:
+    scope: all
+    period: true
+    capital: true
+
+  # GODOX - TODO/FIXME
+  godox:
+    keywords:
+      - TODO
+      - BUG
+      - FIXME
+      - HACK
+      - XXX
+
+  # EXHAUSTIVE
+  exhaustive:
+    check-generated: false
+    default-signifies-exhaustive: false
+
+  # NOLINTLINT
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
+
+  # STYLECHECK
+  stylecheck:
+    checks: ["all"]
+
+  # INEFFASSIGN
+  ineffassign:
+    strict: true
+
+  # UNPARAM
+  unparam:
+    check-exported: true
+
+issues:
+  # No limits
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  # Don't exclude anything
+  exclude-use-default: false
+
+  # Show everything
+  exclude-rules:
+    - path: '(.+)_test\.go'
+      linters:
+        - funlen
+        - gocognit
+        - cyclop
+    - path: '(.+)_test\.go'
+      text: "Function.*is too long"
+      linters:
+        - funlen
+    - path: '(.+)_test\.go'
+      text: "cognitive complexity.*is high"
+      linters:
+        - gocognit
+    - path: '(.+)_test\.go'
+      text: "calculated cyclomatic complexity"
+      linters:
+        - cyclop
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
