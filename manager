@@ -1,0 +1,185 @@
+#!/bin/bash
+
+# Syslog Consumer Certificate Manager
+# Manages TLS certificate lifecycle: expiration check, revocation check, download, and renewal.
+# Certificates are issued by the CA in network-ninja-sabot-deployer.
+#
+# Usage:
+#   manager update        — Check and renew certificates (no service restart)
+#   manager update 1      — Check and renew certificates, restart syslog-consumer if renewed
+
+exists() {
+  declare -F "$1" >/dev/null
+}
+
+# Checking if the mandatory variables is not same defined
+# Not same defined is the common container wrapper.
+
+declare -a RESPONSE=()
+
+[ -v CERTIFICATE_CERTIFICATE_DEPLOYER_KEY ] || RESPONSE+=("environment: Specifies the CERTIFICATE_CERTIFICATE_DEPLOYER_KEY.")
+[ -v CERTIFICATE_DEPLOYER ] || RESPONSE+=("environment: Specifies the CERTIFICATE_DEPLOYER.")
+[ -v CERTIFICATE_RENEWAL ] || RESPONSE+=("environment: Specifies the CERTIFICATE_RENEWAL.")
+[ -v CERTIFICATE_PATH ] || RESPONSE+=("environment: Specifies the CERTIFICATE_PATH.")
+[ -v TENANT ] || RESPONSE+=("environment: Specifies the TENANT.")
+
+# Checking if RESPONSE array is not empty, printing the messages.
+# Calling the runner function to stop the container.
+
+if [ ${#RESPONSE[@]} -ne 0 ]; then
+  printf '%s\n' "${RESPONSE[@]}"
+  exit
+fi
+
+# Unsetting RESPONSE array
+
+unset RESPONSE
+
+# Declare usage variable
+
+CRL="${CERTIFICATE_PATH}/crl.pem"
+TAR_FILENAME="archive.tar.gz"
+TAR_FILENAME_PATH="${CERTIFICATE_PATH}/${TAR_FILENAME}"
+
+# Convert TENANT to lowercase for certificate URL (e.g. IBSS → ibss)
+
+TENANT="${TENANT,,}"
+
+# Make directories if not exists
+
+[ -d "$CERTIFICATE_PATH" ] || mkdir -p "$CERTIFICATE_PATH"
+
+# Ping a reliable external IP address (e.g., Google's public DNS server)
+
+require_internet_connection() {
+
+  # Define the list of hosts to ping
+
+  local hosts=("8.8.8.8" "1.1.1.1")
+  local available=0
+
+  # Loop through the list of hosts and attempt to ping each one
+
+  for host in "${hosts[@]}"; do
+    printf "Perform ping to host %s\n" "$host"
+    if ping -c 1 -W 2 "$host" &>/dev/null; then
+      available=1
+      break
+    fi
+  done
+
+  # Check the internet connectivity flag
+
+  if [ "$available" -ne 1 ]; then
+    echo "No internet connection."
+    exit 1
+  fi
+
+  return 0
+}
+
+# Checks the revocation status of a certificate.
+
+revocation() {
+
+  local results=0
+
+  # Check if the mandatory certificates files exists
+
+  [ -f "$CERTIFICATE_PATH/certificate.pem" ] && [ -f "$CERTIFICATE_PATH/authority.pem" ] || return 0
+
+  # Get the CRL URI from certificate file PEM
+
+  local uri=$(openssl x509 -in "$CERTIFICATE_PATH/certificate.pem" -noout -text | grep -A 1 'Full Name:' | tail -n 1 | awk -F 'URI:' '{print $2}' | sed 's/^\s*//')
+  local uri_cache=$(openssl rand -hex 32)
+
+  # Download the CRL from remote CA declared URI
+
+  wget --no-cache -O "$CRL" -q "$uri?cache=$uri_cache"
+  if ! openssl crl -inform PEM -in "$CRL" -noout -text >/dev/null 2>&1; then
+    printf "CRL parsing failed. The file has been downloaded from %s." "$uri"
+  else
+    # Check revocation status
+
+    openssl verify -crl_check -CAfile "$CERTIFICATE_PATH/authority.pem" -CRLfile "$CRL" "$CERTIFICATE_PATH/certificate.pem" >/dev/null 2>&1
+    results=$?
+  fi
+
+  # Clean the CRL files
+
+  rm -Rf "$CRL"
+
+  return $results
+}
+
+# Checks the status of an X.509 certificate based on its expiration period.
+
+expiration() {
+
+  local seconds=$((CERTIFICATE_RENEWAL * 86400))
+  openssl x509 -checkend $seconds -noout -in "$CERTIFICATE_PATH/certificate.pem" >/dev/null 2>&1
+
+  return $?
+}
+
+update() {
+
+  expiration -eq 0 && revocation -eq 0 && return 0
+
+  require_internet_connection
+
+  echo "Proceed to renew certificate."
+
+  # Download the TAR file from the specified URL and save it as the given path.
+  # Extract the contents of the TAR file to the specified path
+  # Remove the downloaded TAR file
+
+  local uri_cache=$(openssl rand -hex 32)
+  wget --no-cache --timeout 90 --header "X-API-Key: ${CERTIFICATE_CERTIFICATE_DEPLOYER_KEY}" -O "$TAR_FILENAME_PATH" -q "${CERTIFICATE_DEPLOYER//TENANT/$TENANT}?cache=$uri_cache"
+  if [ $? -ne 0 ]; then
+    printf "I was unable to download the new certificates at: %s\n\n" "${CERTIFICATE_DEPLOYER//TENANT/$TENANT}"
+    exit 1
+  fi
+
+  echo "Renew complete."
+
+  printf "Clean the %s.\n" "$CERTIFICATE_PATH"
+
+  find $CERTIFICATE_PATH -type f -name "*.pem" | xargs rm -rf
+  tar --overwrite -xzf "$TAR_FILENAME_PATH" -C "$CERTIFICATE_PATH"
+  rm "$TAR_FILENAME_PATH"
+
+  echo "Operation complete."
+
+  # Check if the certificate is valid and not revoked
+  [[ -z $1 ]] && return 0
+
+  echo "Found a flag variable."
+  local flags=$1
+
+  # Check if the flag is set to 1
+  ((flags & 1)) || return 0
+
+  # Restart the syslog-consumer process so it picks up the new certificates.
+  # Sending SIGTERM allows the process to shut down gracefully.
+  # The wrapper monitoring loop will detect the exit and restart it automatically.
+
+  local services=("syslog-consumer")
+  for svc in "${services[@]}"; do
+    echo "Restart ${svc} to apply new certificates."
+    killall -q "${svc}"
+  done
+
+  echo "Restart complete."
+
+  return 0
+}
+
+if ! exists "$1"; then
+  printf 'The function %s does not exists.\n' "$1"
+  exit
+fi
+
+"$@"
+
+exit 0

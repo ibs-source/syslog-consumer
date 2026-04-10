@@ -1,0 +1,143 @@
+#!/bin/bash
+
+# Syslog Consumer Standalone Wrapper
+# Container entrypoint that manages the TLS certificate lifecycle
+# and the syslog-consumer process.
+#
+# Startup flow:
+#   1. Validate required environment variables
+#   2. Run certificate manager (download/renew if needed)
+#   3. Start syslog-consumer with TLS flags
+#   4. Start background certificate renewal loop
+#   5. Monitor process health, restart on unexpected exit
+#   6. Graceful shutdown on SIGINT/SIGTERM
+
+# Terminate the container by sending SIGINT to PID 1.
+
+runner() {
+  kill -SIGINT 1
+  exit 0
+}
+
+# Checking if the mandatory variables are defined.
+
+declare -a RESPONSE=()
+
+[ -v CERTIFICATE_PATH ] || RESPONSE+=("environment: Specifies the CERTIFICATE_PATH.")
+[ -v CERTIFICATE_DEPLOYER ] || RESPONSE+=("environment: Specifies the CERTIFICATE_DEPLOYER.")
+[ -v CERTIFICATE_RENEWAL ] || RESPONSE+=("environment: Specifies the CERTIFICATE_RENEWAL.")
+[ -v CERTIFICATE_CERTIFICATE_DEPLOYER_KEY ] || RESPONSE+=("environment: Specifies the CERTIFICATE_CERTIFICATE_DEPLOYER_KEY.")
+[ -v TENANT ] || RESPONSE+=("environment: Specifies the TENANT.")
+[ -v BROKER ] || RESPONSE+=("environment: Specifies the BROKER.")
+
+# Checking if RESPONSE array is not empty, printing the messages.
+# Calling the runner function to stop the container.
+
+if [ ${#RESPONSE[@]} -ne 0 ]; then
+  printf '%s\n' "${RESPONSE[@]}"
+  runner
+fi
+
+# Unsetting RESPONSE array
+
+unset RESPONSE
+
+# Default renewal check interval: 6 hours (21600 seconds).
+# Can be overridden by setting CERTIFICATE_RENEWAL_INTERVAL env var.
+
+RENEWAL_INTERVAL="${CERTIFICATE_RENEWAL_INTERVAL:-21600}"
+
+# Run certificate manager to check expiration and download/renew if needed.
+# On first boot this downloads the certificates from the deployer.
+# On subsequent boots it checks expiration and revocation before deciding.
+
+echo "Running certificate manager..."
+
+${CERTIFICATE_PATH}/manager update
+
+if [ $? -ne 0 ]; then
+  echo "Certificate manager failed. Cannot start without valid certificates."
+  runner
+fi
+
+# Verify that the required certificate files exist after manager execution.
+
+if [ ! -f "$CERTIFICATE_PATH/certificate.pem" ] || \
+   [ ! -f "$CERTIFICATE_PATH/key.pem" ] || \
+   [ ! -f "$CERTIFICATE_PATH/authority.pem" ]; then
+  echo "Required certificate files not found in $CERTIFICATE_PATH after manager update."
+  runner
+fi
+
+echo "Certificates ready."
+
+# Build the syslog-consumer command with TLS flags.
+# All other configuration (Redis, MQTT topics, pipeline settings) is read
+# from environment variables by the Go binary itself.
+
+build_command() {
+  local cmd="syslog-consumer"
+
+  cmd="$cmd -mqtt-broker ${BROKER}"
+  cmd="$cmd -mqtt-tls-enabled"
+  cmd="$cmd -mqtt-ca-cert ${CERTIFICATE_PATH}/authority.pem"
+  cmd="$cmd -mqtt-client-cert ${CERTIFICATE_PATH}/certificate.pem"
+  cmd="$cmd -mqtt-client-key ${CERTIFICATE_PATH}/key.pem"
+  cmd="$cmd -mqtt-use-cert-cn-prefix"
+
+  echo "$cmd"
+}
+
+# Start the syslog-consumer process in the background.
+
+start_consumer() {
+  local cmd=$(build_command)
+  echo "Starting syslog-consumer: $cmd"
+  bash -c "$cmd" &
+  CONSUMER_PID=$!
+  echo "syslog-consumer started with PID $CONSUMER_PID"
+}
+
+# Start the consumer process
+
+start_consumer
+
+# Start background certificate renewal loop.
+# Periodically checks certificate expiration and revocation.
+# If renewal occurs, flag 1 tells the manager to kill syslog-consumer
+# so the monitoring loop below restarts it with the new certificates.
+
+(
+  while true; do
+    sleep "${RENEWAL_INTERVAL}" &
+    wait $!
+    echo "Running periodic certificate renewal check..."
+    ${CERTIFICATE_PATH}/manager update 1
+  done
+) &
+
+RENEWAL_PID=$!
+echo "Certificate renewal loop started with PID $RENEWAL_PID (interval: ${RENEWAL_INTERVAL}s)"
+
+# Setup signal trap for graceful shutdown.
+# On SIGINT/SIGTERM, kill the consumer and renewal loop, then exit.
+
+trap runner SIGINT SIGQUIT SIGTERM
+
+# Monitor the syslog-consumer process.
+# If the process exits unexpectedly (e.g., killed by manager for cert renewal),
+# restart it automatically.
+
+while
+  sleep 8 &
+  wait $!
+do
+
+  # Check if the consumer process is still running
+
+  if ! kill -0 "$CONSUMER_PID" 2>/dev/null; then
+    echo "syslog-consumer (PID $CONSUMER_PID) exited. Restarting..."
+    start_consumer
+  fi
+
+done

@@ -1,0 +1,18 @@
+# Environment
+*.env
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Test fixtures (generated / large)
+testdata/
+
+# Go build & test artifacts
+coverage.out
+*.test

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Syslog Consumer Health Check
+# Verifies the syslog-consumer process is running and the health endpoint responds.
+
+pgrep -x syslog-consumer > /dev/null || exit 1
+
+curl --silent --fail --max-time 4 http://127.0.0.1:9980/healthz > /dev/null || exit 1
+
+exit 0
