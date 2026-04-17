@@ -98,6 +98,28 @@ func TestDefaultPipelineConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultCompressConfig(t *testing.T) {
+	cfg := defaultCompressConfig()
+
+	tests := []struct {
+		got  any
+		want any
+		name string
+	}{
+		{cfg.FreelistSize, 128, "FreelistSize"},
+		{cfg.MaxDecompressBytes, 256 * 1024 * 1024, "MaxDecompressBytes"},
+		{cfg.WarmupCount, 4, "WarmupCount"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("defaultCompressConfig().%s = %v; want %v", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 
@@ -127,5 +149,16 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Pipeline.PublishWorkers != 50 {
 		t.Errorf("defaultConfig().Pipeline.PublishWorkers = %d; want 50", cfg.Pipeline.PublishWorkers)
+	}
+
+	// Verify Compress defaults
+	if cfg.Compress.FreelistSize != 128 {
+		t.Errorf("defaultConfig().Compress.FreelistSize = %d; want 128", cfg.Compress.FreelistSize)
+	}
+	if cfg.Compress.MaxDecompressBytes != 256*1024*1024 {
+		t.Errorf("defaultConfig().Compress.MaxDecompressBytes = %d; want %d", cfg.Compress.MaxDecompressBytes, 256*1024*1024)
+	}
+	if cfg.Compress.WarmupCount != 4 {
+		t.Errorf("defaultConfig().Compress.WarmupCount = %d; want 4", cfg.Compress.WarmupCount)
 	}
 }

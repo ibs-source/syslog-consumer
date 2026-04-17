@@ -128,12 +128,14 @@ func BenchmarkParseAck_Parallel(b *testing.B) {
 	payload := []byte(`{"ids":["1771419690573-2"],"stream":"syslog-stream","ack":true}`)
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
+		var sink message.AckMessage
 		for pb.Next() {
 			ack, err := parseAck(payload)
 			if err != nil {
 				b.Fatalf("parseAck(): %v", err)
 			}
-			ackSink = ack
+			sink = ack
 		}
+		_ = sink
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -13,6 +14,15 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/log"
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
+
+func TestMain(m *testing.M) {
+	compress.Init(&config.CompressConfig{
+		FreelistSize:       128,
+		MaxDecompressBytes: 256 << 20,
+		WarmupCount:        4,
+	})
+	os.Exit(m.Run())
+}
 
 // --- paho mock types ---
 

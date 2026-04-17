@@ -13,7 +13,10 @@ func Validate(cfg *Config) error {
 	if err := validateMQTT(&cfg.MQTT); err != nil {
 		return err
 	}
-	return validatePipeline(&cfg.Pipeline)
+	if err := validatePipeline(&cfg.Pipeline); err != nil {
+		return err
+	}
+	return validateCompress(&cfg.Compress)
 }
 
 func validateLog(cfg *LogConfig) error {
@@ -61,6 +64,20 @@ func validateMQTT(cfg *MQTTConfig) error {
 	}
 	if cfg.AckTopic == "" {
 		return fmt.Errorf("mqtt ack topic cannot be empty")
+	}
+	return nil
+}
+
+// validateCompress validates compression configuration.
+func validateCompress(cfg *CompressConfig) error {
+	if cfg.FreelistSize < 1 {
+		return fmt.Errorf("compress freelist size must be positive")
+	}
+	if cfg.MaxDecompressBytes < 1 {
+		return fmt.Errorf("compress max decompress bytes must be positive")
+	}
+	if cfg.WarmupCount < 0 || cfg.WarmupCount > cfg.FreelistSize {
+		return fmt.Errorf("compress warmup count must be between 0 and freelist size")
 	}
 	return nil
 }

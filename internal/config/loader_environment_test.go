@@ -242,6 +242,45 @@ func testLookupEnvBoolInvalid(t *testing.T) {
 	}
 }
 
+func TestLoadCompressFromEnv(t *testing.T) {
+	cfg := defaultCompressConfig()
+
+	t.Setenv("COMPRESS_FREELIST_SIZE", "256")
+	t.Setenv("MAX_DECOMPRESS_BYTES", "134217728") // 128 MiB
+	t.Setenv("COMPRESS_WARMUP_COUNT", "8")
+
+	loadCompressFromEnv(&cfg)
+
+	if cfg.FreelistSize != 256 {
+		t.Errorf("FreelistSize = %d; want 256", cfg.FreelistSize)
+	}
+	if cfg.MaxDecompressBytes != 128*1024*1024 {
+		t.Errorf("MaxDecompressBytes = %d; want %d", cfg.MaxDecompressBytes, 128*1024*1024)
+	}
+	if cfg.WarmupCount != 8 {
+		t.Errorf("WarmupCount = %d; want 8", cfg.WarmupCount)
+	}
+}
+
+func TestLoadCompressFromEnv_PartialOverride(t *testing.T) {
+	cfg := defaultCompressConfig()
+
+	// Only override FreelistSize
+	t.Setenv("COMPRESS_FREELIST_SIZE", "64")
+	loadCompressFromEnv(&cfg)
+
+	if cfg.FreelistSize != 64 {
+		t.Errorf("FreelistSize = %d; want 64", cfg.FreelistSize)
+	}
+	// Others should remain default
+	if cfg.MaxDecompressBytes != 256*1024*1024 {
+		t.Errorf("MaxDecompressBytes = %d; want default %d", cfg.MaxDecompressBytes, 256*1024*1024)
+	}
+	if cfg.WarmupCount != 4 {
+		t.Errorf("WarmupCount = %d; want default 4", cfg.WarmupCount)
+	}
+}
+
 func TestLoadRedisFromEnv_PartialOverride(t *testing.T) {
 	// Start with defaults
 	cfg := defaultRedisConfig()

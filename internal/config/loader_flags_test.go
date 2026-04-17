@@ -315,6 +315,52 @@ func TestApplyAllPipelineFlags(t *testing.T) {
 	}
 }
 
+func TestApplyCompressFlags(t *testing.T) {
+	cfg := defaultCompressConfig()
+
+	// No flags set → defaults should remain.
+	applyCompressFlags(&cfg)
+
+	if cfg.FreelistSize != 128 {
+		t.Errorf("FreelistSize = %d; want 128", cfg.FreelistSize)
+	}
+	if cfg.MaxDecompressBytes != 256*1024*1024 {
+		t.Errorf("MaxDecompressBytes = %d; want %d", cfg.MaxDecompressBytes, 256*1024*1024)
+	}
+	if cfg.WarmupCount != 4 {
+		t.Errorf("WarmupCount = %d; want 4", cfg.WarmupCount)
+	}
+}
+
+func TestApplyAllCompressFlags(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	os.Args = []string{
+		"test",
+		"-compress-freelist-size=64",
+		"-max-decompress-bytes=134217728",
+		"-compress-warmup-count=8",
+	}
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	resetFlags()
+	flag.Parse()
+
+	cfg := defaultCompressConfig()
+	applyCompressFlags(&cfg)
+
+	if cfg.FreelistSize != 64 {
+		t.Errorf("FreelistSize = %d; want 64", cfg.FreelistSize)
+	}
+	if cfg.MaxDecompressBytes != 128*1024*1024 {
+		t.Errorf("MaxDecompressBytes = %d; want %d", cfg.MaxDecompressBytes, 128*1024*1024)
+	}
+	if cfg.WarmupCount != 8 {
+		t.Errorf("WarmupCount = %d; want 8", cfg.WarmupCount)
+	}
+}
+
 // resetFlags re-initializes all flag variables for testing
 func resetFlags() {
 	// Redis flags
@@ -357,4 +403,9 @@ func resetFlags() {
 	flagPipelineAckTimeout = flag.Duration("pipeline-ack-timeout", 0, "Pipeline ACK timeout")
 	flagPipelinePublishWorkers = flag.Int("pipeline-publish-workers", 0, "Number of concurrent publish workers")
 	flagPipelineRefreshInterval = flag.Duration("pipeline-refresh-interval", 0, "Pipeline stream refresh interval")
+
+	// Compress flags
+	flagCompressFreelistSize = flag.Int("compress-freelist-size", 0, "Decoder freelist channel capacity")
+	flagCompressMaxDecompressBytes = flag.Int("max-decompress-bytes", 0, "Max decompressed payload size in bytes")
+	flagCompressWarmupCount = flag.Int("compress-warmup-count", 0, "Decoders pre-created at init")
 }

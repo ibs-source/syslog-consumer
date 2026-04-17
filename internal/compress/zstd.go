@@ -5,14 +5,25 @@
 package compress
 
 import (
+	"github.com/ibs-source/syslog-consumer/internal/config"
 	"github.com/klauspost/compress/zstd"
 )
 
-// freelistSize is the capacity for encoder/decoder freelists.
-// Sized for max(MQTT_POOL_SIZE * parseWorkersPerClient) concurrent users.
-const freelistSize = 128
+// cfg holds the compression configuration, set once by Init.
+var cfg *config.CompressConfig
 
-var decoderFree = make(chan *zstd.Decoder, freelistSize)
+var decoderFree chan *zstd.Decoder
+
+// Init initialises the compression subsystem from config.
+// Must be called once before any Decompress calls (typically from main,
+// after config load). The config pointer is retained — no copy is made.
+func Init(c *config.CompressConfig) {
+	cfg = c
+	decoderFree = make(chan *zstd.Decoder, cfg.FreelistSize)
+	for range min(cfg.WarmupCount, cfg.FreelistSize) {
+		decoderFree <- newDecoder()
+	}
+}
 
 func newEncoder() *zstd.Encoder {
 	e, err := zstd.NewWriter(nil,
@@ -28,21 +39,13 @@ func newEncoder() *zstd.Encoder {
 }
 
 func newDecoder() *zstd.Decoder {
-	d, err := zstd.NewReader(nil)
+	d, err := zstd.NewReader(nil,
+		zstd.WithDecoderMaxMemory(uint64(cfg.MaxDecompressBytes)),
+	)
 	if err != nil {
 		panic("compress: zstd decoder: " + err.Error())
 	}
 	return d
-}
-
-// warmupCount is the number of encoders/decoders pre-created at init
-// to eliminate cold-start allocation latency (~500µs per codec instance).
-const warmupCount = 4
-
-func init() {
-	for range warmupCount {
-		decoderFree <- newDecoder()
-	}
 }
 
 func getDecoder() *zstd.Decoder {

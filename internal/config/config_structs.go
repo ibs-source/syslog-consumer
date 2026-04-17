@@ -9,6 +9,14 @@ type Config struct {
 	MQTT     MQTTConfig
 	Pipeline PipelineConfig
 	Redis    RedisConfig
+	Compress CompressConfig
+}
+
+// CompressConfig holds compression/decompression tuning parameters.
+type CompressConfig struct {
+	FreelistSize       int // channel buffer capacity for decoder reuse
+	MaxDecompressBytes int // hard cap for a single decompressed payload
+	WarmupCount        int // decoders pre-created at init to avoid cold-start latency
 }
 
 // LogConfig holds application logging configuration.

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ibs-source/syslog-consumer/internal/compress"
 	"github.com/ibs-source/syslog-consumer/internal/config"
 	"github.com/ibs-source/syslog-consumer/internal/health"
 	"github.com/ibs-source/syslog-consumer/internal/hotpath"
@@ -36,6 +37,8 @@ func run() int {
 	if err != nil {
 		return 1
 	}
+
+	compress.Init(&cfg.Compress)
 
 	// Use a signal-aware context so that retry loops can be canceled
 	// during startup if the user sends SIGTERM/SIGINT.

@@ -1,13 +1,13 @@
 module github.com/ibs-source/syslog-consumer
 
-go 1.25.8
+go 1.25.9
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/klauspost/compress v1.18.5
 	github.com/redis/go-redis/v9 v9.16.0
-	github.com/ubyte-source/go-jsonfast v0.0.2
+	github.com/ubyte-source/go-jsonfast v0.0.3
 	golang.org/x/sync v0.18.0
 )
 

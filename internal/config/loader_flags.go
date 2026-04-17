@@ -52,6 +52,11 @@ var (
 	flagMQTTMessageChannelDepth  = flag.Int("mqtt-message-channel-depth", 0, "MQTT internal message queue depth")
 	flagMQTTMaxResumePubInFlight = flag.Int("mqtt-max-resume-pub-in-flight", 0, "MQTT max resumed unacked publishes")
 
+	// Compress flags
+	flagCompressFreelistSize       = flag.Int("compress-freelist-size", 0, "Decoder freelist channel capacity")
+	flagCompressMaxDecompressBytes = flag.Int("max-decompress-bytes", 0, "Max decompressed payload size in bytes")
+	flagCompressWarmupCount        = flag.Int("compress-warmup-count", 0, "Decoders pre-created at init")
+
 	// Pipeline flags
 	flagPipelineBufferCapacity  = flag.Int("pipeline-buffer-capacity", 0, "Pipeline buffer capacity")
 	flagPipelineShutdownTimeout = flag.Duration("pipeline-shutdown-timeout", 0, "Pipeline shutdown timeout")
@@ -245,6 +250,19 @@ func applyMQTTFlagBools(cfg *MQTTConfig) {
 	}
 	if isFlagSet("mqtt-use-cert-cn-prefix") {
 		cfg.UseCertCNPrefix = *flagMQTTUseCertCNPrefix
+	}
+}
+
+// applyCompressFlags applies command line flags to compression configuration.
+func applyCompressFlags(cfg *CompressConfig) {
+	if *flagCompressFreelistSize != 0 {
+		cfg.FreelistSize = *flagCompressFreelistSize
+	}
+	if *flagCompressMaxDecompressBytes != 0 {
+		cfg.MaxDecompressBytes = *flagCompressMaxDecompressBytes
+	}
+	if *flagCompressWarmupCount != 0 {
+		cfg.WarmupCount = *flagCompressWarmupCount
 	}
 }
 

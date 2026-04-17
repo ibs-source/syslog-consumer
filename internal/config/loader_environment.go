@@ -173,6 +173,19 @@ func loadMQTTBools(cfg *MQTTConfig) {
 	}
 }
 
+// loadCompressFromEnv loads compression configuration from environment variables.
+func loadCompressFromEnv(cfg *CompressConfig) {
+	if v := getEnvInt("COMPRESS_FREELIST_SIZE"); v != 0 {
+		cfg.FreelistSize = v
+	}
+	if v := getEnvInt("MAX_DECOMPRESS_BYTES"); v != 0 {
+		cfg.MaxDecompressBytes = v
+	}
+	if v := getEnvInt("COMPRESS_WARMUP_COUNT"); v != 0 {
+		cfg.WarmupCount = v
+	}
+}
+
 // loadPipelineFromEnv loads Pipeline configuration from environment variables.
 func loadPipelineFromEnv(cfg *PipelineConfig) {
 	loadPipelineIntsFromEnv(cfg)

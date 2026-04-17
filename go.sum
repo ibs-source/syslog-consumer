@@ -16,8 +16,8 @@ github.com/klauspost/compress v1.18.5 h1:/h1gH5Ce+VWNLSWqPzOVn6XBO+vJbCNGvjoaGBF
 github.com/klauspost/compress v1.18.5/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/redis/go-redis/v9 v9.16.0 h1:OotgqgLSRCmzfqChbQyG1PHC3tLNR89DG4jdOERSEP4=
 github.com/redis/go-redis/v9 v9.16.0/go.mod h1:u410H11HMLoB+TP67dz8rL9s6QW2j76l0//kSOd3370=
-github.com/ubyte-source/go-jsonfast v0.0.2 h1:xiyx8rlvrAu/+aEGj3Qu2vrZNIJL3b0JPvs27WSWjDI=
-github.com/ubyte-source/go-jsonfast v0.0.2/go.mod h1:PSGsGYqUze6Lne8N2xmaAyAgG5Xntkue3Bw+vhVrHO0=
+github.com/ubyte-source/go-jsonfast v0.0.3 h1:HEXKOEOZlXX+3paS1Z13DhtrPEctatHRdBTLfIgKf1U=
+github.com/ubyte-source/go-jsonfast v0.0.3/go.mod h1:5EcVbhXjDOLZ4Dkhw1iwoiZKuVsy8nWhRj6267XdVeI=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
 github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
 golang.org/x/net v0.46.0 h1:giFlY12I07fugqwPuWJi68oOnpfqFnJIJzaIIm2JVV4=

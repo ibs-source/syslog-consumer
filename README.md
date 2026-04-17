@@ -132,6 +132,8 @@ All configuration via environment variables. Flags override environment where ap
 | `REDIS_DIAL_TIMEOUT` | `5s` | Connection dial timeout |
 | `REDIS_READ_TIMEOUT` | `3s` | Read timeout |
 | `REDIS_WRITE_TIMEOUT` | `3s` | Write timeout |
+| `REDIS_PING_TIMEOUT` | `3s` | Ping timeout |
+| `REDIS_DISCOVERY_SCAN_COUNT` | `1000` | SCAN COUNT hint for multi-stream discovery |
 
 ### MQTT
 
@@ -146,6 +148,14 @@ All configuration via environment variables. Flags override environment where ap
 | `MQTT_CONNECT_TIMEOUT` | `10s` | Connection timeout |
 | `MQTT_WRITE_TIMEOUT` | `5s` | Publish timeout |
 | `MQTT_KEEP_ALIVE` | `60s` | PINGREQ interval |
+| `MQTT_PING_TIMEOUT` | `10s` | Max wait for PINGRESP before reconnect |
+| `MQTT_CONNECT_RETRY_DELAY` | `2s` | Delay between connection retry attempts |
+| `MQTT_MAX_RECONNECT_INTERVAL` | `5s` | Maximum reconnect delay |
+| `MQTT_SUBSCRIBE_TIMEOUT` | `10s` | Subscription timeout |
+| `MQTT_DISCONNECT_TIMEOUT` | `1s` | Disconnect timeout |
+| `MQTT_MESSAGE_CHANNEL_DEPTH` | `10000` | Internal paho outgoing queue depth |
+| `MQTT_MAX_RESUME_PUB_IN_FLIGHT` | `1000` | Unacknowledged publishes resumed after reconnect |
+| `MQTT_TLS_INSECURE_SKIP` | `false` | Skip server certificate verification |
 
 ### MQTT TLS (optional)
 
@@ -169,6 +179,25 @@ All configuration via environment variables. Flags override environment where ap
 | `PIPELINE_ERROR_BACKOFF` | `50ms` | Sleep on Redis error |
 | `PIPELINE_REFRESH_INTERVAL` | `1m` | Multi-stream discovery interval |
 | `PIPELINE_HEALTH_ADDR` | `:9980` | Health endpoint bind address |
+| `PIPELINE_ACK_TIMEOUT` | `5s` | Timeout for ACK operations |
+| `PIPELINE_ACK_BATCH_SIZE` | `256` | Immediate flush threshold for batched ACKs |
+| `PIPELINE_ACK_FLUSH_INTERVAL` | `10ms` | Timer interval for flushing batched ACKs |
+| `PIPELINE_HEALTH_PING_TIMEOUT` | `2s` | Redis ping timeout in health check |
+| `PIPELINE_HEALTH_READ_HEADER_TIMEOUT` | `5s` | Health server HTTP read header timeout |
+
+### Compression
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COMPRESS_FREELIST_SIZE` | `128` | Decoder freelist channel capacity |
+| `MAX_DECOMPRESS_BYTES` | `256MiB` | Hard cap for a single decompressed payload (zip bomb protection) |
+| `COMPRESS_WARMUP_COUNT` | `4` | Decoders pre-created at init to avoid cold-start latency |
+
+### General
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_LEVEL` | `info` | Log level: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic` |
 
 ## 📦 Message Format
 

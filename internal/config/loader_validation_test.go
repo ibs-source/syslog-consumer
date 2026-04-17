@@ -182,6 +182,51 @@ func getPipelineValidationTests() []pipelineTestCase {
 	}
 }
 
+type compressTestCase struct {
+	name      string
+	wantError string
+	cfg       CompressConfig
+}
+
+func TestValidateCompress(t *testing.T) {
+	valid := defaultCompressConfig()
+
+	zeroFreelist := valid
+	zeroFreelist.FreelistSize = 0
+
+	zeroMaxDecompress := valid
+	zeroMaxDecompress.MaxDecompressBytes = 0
+
+	warmupOverFreelist := valid
+	warmupOverFreelist.WarmupCount = valid.FreelistSize + 1
+
+	negativeWarmup := valid
+	negativeWarmup.WarmupCount = -1
+
+	for _, tt := range []compressTestCase{
+		{name: "valid config", cfg: valid, wantError: ""},
+		{name: "zero freelist size", cfg: zeroFreelist, wantError: "compress freelist size must be positive"},
+		{name: "zero max decompress", cfg: zeroMaxDecompress, wantError: "compress max decompress bytes must be positive"},
+		{name: "warmup exceeds freelist", cfg: warmupOverFreelist, wantError: "compress warmup count must be between 0 and freelist size"},
+		{name: "negative warmup", cfg: negativeWarmup, wantError: "compress warmup count must be between 0 and freelist size"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCompress(&tt.cfg)
+			checkValidationError(t, err, tt.wantError)
+		})
+	}
+}
+
+func TestValidate_CompressError(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Compress.FreelistSize = 0
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "compress freelist") {
+		t.Errorf("Validate() error = %v; want compress freelist error", err)
+	}
+}
+
 func checkValidationError(t *testing.T, err error, wantError string) {
 	t.Helper()
 	if wantError == "" {

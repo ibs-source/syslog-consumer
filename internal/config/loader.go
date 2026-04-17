@@ -21,12 +21,14 @@ func Load() (*Config, error) {
 	loadRedisFromEnv(&cfg.Redis)
 	loadMQTTFromEnv(&cfg.MQTT)
 	loadPipelineFromEnv(&cfg.Pipeline)
+	loadCompressFromEnv(&cfg.Compress)
 
 	// Step 3: Apply command line flags (highest precedence)
 	applyLogFlags(&cfg.Log)
 	applyRedisFlags(&cfg.Redis)
 	applyMQTTFlags(&cfg.MQTT)
 	applyPipelineFlags(&cfg.Pipeline)
+	applyCompressFlags(&cfg.Compress)
 
 	// Step 4: Apply runtime validations and transformations
 	if err := applyRuntimeValidation(cfg); err != nil {
