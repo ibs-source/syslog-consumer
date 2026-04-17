@@ -22,7 +22,7 @@ func TestConfigStructs_ZeroValue(t *testing.T) {
 }
 
 func TestRedisConfig_Fields(t *testing.T) {
-	rc := RedisConfig{
+	got := RedisConfig{
 		Address:             "localhost:6379",
 		Stream:              "syslog-stream",
 		Consumer:            "c1",
@@ -40,25 +40,31 @@ func TestRedisConfig_Fields(t *testing.T) {
 		PoolSize:            10,
 		MinIdleConns:        2,
 	}
-	if rc.Address != "localhost:6379" {
-		t.Errorf("Address = %q", rc.Address)
+	want := RedisConfig{
+		Address:             "localhost:6379",
+		Stream:              "syslog-stream",
+		Consumer:            "c1",
+		GroupName:           "grp",
+		BatchSize:           100,
+		DiscoveryScanCount:  500,
+		BlockTimeout:        2 * time.Second,
+		ClaimIdle:           30 * time.Second,
+		ConsumerIdleTimeout: 5 * time.Minute,
+		CleanupInterval:     1 * time.Minute,
+		DialTimeout:         5 * time.Second,
+		ReadTimeout:         3 * time.Second,
+		WriteTimeout:        3 * time.Second,
+		PingTimeout:         2 * time.Second,
+		PoolSize:            10,
+		MinIdleConns:        2,
 	}
-	if rc.BatchSize != 100 {
-		t.Errorf("BatchSize = %d", rc.BatchSize)
-	}
-	if rc.ClaimIdle != 30*time.Second {
-		t.Errorf("ClaimIdle = %v", rc.ClaimIdle)
-	}
-	if rc.PoolSize != 10 {
-		t.Errorf("PoolSize = %d", rc.PoolSize)
-	}
-	if rc.DiscoveryScanCount != 500 {
-		t.Errorf("DiscoveryScanCount = %d", rc.DiscoveryScanCount)
+	if got != want {
+		t.Errorf("RedisConfig mismatch\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
 func TestMQTTConfig_Fields(t *testing.T) {
-	mc := MQTTConfig{
+	got := MQTTConfig{
 		Broker:               "ssl://broker:8883",
 		ClientID:             "client-1",
 		PublishTopic:         "pub/topic",
@@ -82,31 +88,37 @@ func TestMQTTConfig_Fields(t *testing.T) {
 		InsecureSkip:         false,
 		UseCertCNPrefix:      true,
 	}
-	if mc.Broker != "ssl://broker:8883" {
-		t.Errorf("Broker = %q", mc.Broker)
+	want := MQTTConfig{
+		Broker:               "ssl://broker:8883",
+		ClientID:             "client-1",
+		PublishTopic:         "pub/topic",
+		AckTopic:             "ack/topic",
+		CACert:               "/path/ca.pem",
+		ClientCert:           "/path/cert.pem",
+		ClientKey:            "/path/key.pem",
+		ConnectTimeout:       10 * time.Second,
+		WriteTimeout:         5 * time.Second,
+		MaxReconnectInterval: 30 * time.Second,
+		SubscribeTimeout:     10 * time.Second,
+		DisconnectTimeout:    5 * time.Second,
+		KeepAlive:            60 * time.Second,
+		PingTimeout:          10 * time.Second,
+		ConnectRetryDelay:    2 * time.Second,
+		PoolSize:             3,
+		MessageChannelDepth:  100,
+		MaxResumePubInFlight: 10,
+		QoS:                  1,
+		TLSEnabled:           true,
+		InsecureSkip:         false,
+		UseCertCNPrefix:      true,
 	}
-	if mc.QoS != 1 {
-		t.Errorf("QoS = %d", mc.QoS)
-	}
-	if !mc.TLSEnabled {
-		t.Error("TLSEnabled should be true")
-	}
-	if mc.InsecureSkip {
-		t.Error("InsecureSkip should be false")
-	}
-	if !mc.UseCertCNPrefix {
-		t.Error("UseCertCNPrefix should be true")
-	}
-	if mc.PoolSize != 3 {
-		t.Errorf("PoolSize = %d", mc.PoolSize)
-	}
-	if mc.MessageChannelDepth != 100 {
-		t.Errorf("MessageChannelDepth = %d", mc.MessageChannelDepth)
+	if got != want {
+		t.Errorf("MQTTConfig mismatch\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
 func TestPipelineConfig_Fields(t *testing.T) {
-	pc := PipelineConfig{
+	got := PipelineConfig{
 		HealthAddr:              ":9980",
 		HealthPingTimeout:       2 * time.Second,
 		HealthReadHeaderTimeout: 5 * time.Second,
@@ -121,23 +133,23 @@ func TestPipelineConfig_Fields(t *testing.T) {
 		AckWorkers:              2,
 		AckBatchSize:            50,
 	}
-	if pc.HealthAddr != ":9980" {
-		t.Errorf("HealthAddr = %q", pc.HealthAddr)
+	want := PipelineConfig{
+		HealthAddr:              ":9980",
+		HealthPingTimeout:       2 * time.Second,
+		HealthReadHeaderTimeout: 5 * time.Second,
+		ShutdownTimeout:         30 * time.Second,
+		ErrorBackoff:            1 * time.Second,
+		AckTimeout:              5 * time.Second,
+		RefreshInterval:         1 * time.Minute,
+		AckFlushInterval:        500 * time.Millisecond,
+		BufferCapacity:          1000,
+		MessageQueueCapacity:    8,
+		PublishWorkers:          4,
+		AckWorkers:              2,
+		AckBatchSize:            50,
 	}
-	if pc.PublishWorkers != 4 {
-		t.Errorf("PublishWorkers = %d", pc.PublishWorkers)
-	}
-	if pc.AckWorkers != 2 {
-		t.Errorf("AckWorkers = %d", pc.AckWorkers)
-	}
-	if pc.AckBatchSize != 50 {
-		t.Errorf("AckBatchSize = %d", pc.AckBatchSize)
-	}
-	if pc.MessageQueueCapacity != 8 {
-		t.Errorf("MessageQueueCapacity = %d", pc.MessageQueueCapacity)
-	}
-	if pc.BufferCapacity != 1000 {
-		t.Errorf("BufferCapacity = %d", pc.BufferCapacity)
+	if got != want {
+		t.Errorf("PipelineConfig mismatch\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 

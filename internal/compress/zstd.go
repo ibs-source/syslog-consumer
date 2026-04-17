@@ -14,7 +14,7 @@ var cfg *config.CompressConfig
 
 var decoderFree chan *zstd.Decoder
 
-// Init initialises the compression subsystem from config.
+// Init initializes the compression subsystem from config.
 // Must be called once before any Decompress calls (typically from main,
 // after config load). The config pointer is retained — no copy is made.
 func Init(c *config.CompressConfig) {
@@ -40,7 +40,7 @@ func newEncoder() *zstd.Encoder {
 
 func newDecoder() *zstd.Decoder {
 	d, err := zstd.NewReader(nil,
-		zstd.WithDecoderMaxMemory(uint64(cfg.MaxDecompressBytes)),
+		zstd.WithDecoderMaxMemory(uint64(cfg.MaxDecompressBytes)), //nolint:gosec // validated > 0 at startup
 	)
 	if err != nil {
 		panic("compress: zstd decoder: " + err.Error())

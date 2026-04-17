@@ -207,8 +207,10 @@ func TestValidateCompress(t *testing.T) {
 		{name: "valid config", cfg: valid, wantError: ""},
 		{name: "zero freelist size", cfg: zeroFreelist, wantError: "compress freelist size must be positive"},
 		{name: "zero max decompress", cfg: zeroMaxDecompress, wantError: "compress max decompress bytes must be positive"},
-		{name: "warmup exceeds freelist", cfg: warmupOverFreelist, wantError: "compress warmup count must be between 0 and freelist size"},
-		{name: "negative warmup", cfg: negativeWarmup, wantError: "compress warmup count must be between 0 and freelist size"},
+		{name: "warmup exceeds freelist", cfg: warmupOverFreelist,
+			wantError: "compress warmup count must be between 0 and freelist size"},
+		{name: "negative warmup", cfg: negativeWarmup,
+			wantError: "compress warmup count must be between 0 and freelist size"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateCompress(&tt.cfg)

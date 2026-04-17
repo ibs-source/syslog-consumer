@@ -5,35 +5,35 @@ import "testing"
 func TestSeverityName(t *testing.T) {
 	tests := []struct {
 		name string
-		raw  []byte
 		want string
+		raw  []byte
 	}{
 		// Fast path: single-digit ASCII
-		{"0 EMERGENCY", []byte("0"), "EMERGENCY"},
-		{"1 ALERT", []byte("1"), "ALERT"},
-		{"2 CRITICAL", []byte("2"), "CRITICAL"},
-		{"3 ERROR", []byte("3"), "ERROR"},
-		{"4 WARNING", []byte("4"), "WARNING"},
-		{"5 NOTICE", []byte("5"), "NOTICE"},
-		{"6 INFO", []byte("6"), "INFO"},
-		{"7 DEBUG", []byte("7"), "DEBUG"},
+		{raw: []byte("0"), name: "0 EMERGENCY", want: "EMERGENCY"},
+		{raw: []byte("1"), name: "1 ALERT", want: "ALERT"},
+		{raw: []byte("2"), name: "2 CRITICAL", want: "CRITICAL"},
+		{raw: []byte("3"), name: "3 ERROR", want: "ERROR"},
+		{raw: []byte("4"), name: "4 WARNING", want: "WARNING"},
+		{raw: []byte("5"), name: "5 NOTICE", want: "NOTICE"},
+		{raw: []byte("6"), name: "6 INFO", want: "INFO"},
+		{raw: []byte("7"), name: "7 DEBUG", want: "DEBUG"},
 
 		// Slow path: multi-byte numeric strings
-		{"multi-byte 0", []byte("00"), "EMERGENCY"},
-		{"multi-byte 7", []byte("07"), "DEBUG"},
+		{raw: []byte("00"), name: "multi-byte 0", want: "EMERGENCY"},
+		{raw: []byte("07"), name: "multi-byte 7", want: "DEBUG"},
 
 		// Out-of-range → default INFO
-		{"8 out of range", []byte("8"), "INFO"},
-		{"9 out of range", []byte("9"), "INFO"},
-		{"negative", []byte("-1"), "INFO"},
-		{"large number", []byte("99"), "INFO"},
+		{raw: []byte("8"), name: "8 out of range", want: "INFO"},
+		{raw: []byte("9"), name: "9 out of range", want: "INFO"},
+		{raw: []byte("-1"), name: "negative", want: "INFO"},
+		{raw: []byte("99"), name: "large number", want: "INFO"},
 
 		// Invalid input → default INFO
-		{"empty", []byte(""), "INFO"},
-		{"non-numeric", []byte("abc"), "INFO"},
-		{"float", []byte("3.5"), "INFO"},
-		{"space", []byte(" "), "INFO"},
-		{"null bytes", []byte("\x00"), "INFO"},
+		{raw: []byte(""), name: "empty", want: "INFO"},
+		{raw: []byte("abc"), name: "non-numeric", want: "INFO"},
+		{raw: []byte("3.5"), name: "float", want: "INFO"},
+		{raw: []byte(" "), name: "space", want: "INFO"},
+		{raw: []byte("\x00"), name: "null bytes", want: "INFO"},
 	}
 
 	for _, tt := range tests {

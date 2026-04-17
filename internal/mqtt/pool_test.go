@@ -318,7 +318,10 @@ func TestPoolSubscribeAck_StopsOnFirstError(t *testing.T) {
 		},
 		size: 2,
 	}
-	_ = p.SubscribeAck(func(_ message.AckMessage) {})
+	err := p.SubscribeAck(func(_ message.AckMessage) {})
+	if err == nil {
+		t.Fatal("expected error from SubscribeAck")
+	}
 	if callCount != 1 {
 		t.Errorf("expected 1 subscribe attempt (stop on error), got %d", callCount)
 	}
@@ -357,8 +360,13 @@ func TestPoolIsConnected_Empty(t *testing.T) {
 func TestCloseClients_SkipsNil(t *testing.T) {
 	logger := log.New()
 	clients := make([]*Client, 3)
-	// Leave all nil
-	closeClients(logger, clients, 3) // should not panic
+	// Leave all nil — closeClients must handle gracefully.
+	closeClients(logger, clients, 3)
+	for i, c := range clients {
+		if c != nil {
+			t.Errorf("client[%d] should still be nil after closeClients", i)
+		}
+	}
 }
 
 func TestCloseClients_ClosesConnected(t *testing.T) {

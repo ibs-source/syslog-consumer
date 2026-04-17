@@ -151,14 +151,5 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("defaultConfig().Pipeline.PublishWorkers = %d; want 50", cfg.Pipeline.PublishWorkers)
 	}
 
-	// Verify Compress defaults
-	if cfg.Compress.FreelistSize != 128 {
-		t.Errorf("defaultConfig().Compress.FreelistSize = %d; want 128", cfg.Compress.FreelistSize)
-	}
-	if cfg.Compress.MaxDecompressBytes != 256*1024*1024 {
-		t.Errorf("defaultConfig().Compress.MaxDecompressBytes = %d; want %d", cfg.Compress.MaxDecompressBytes, 256*1024*1024)
-	}
-	if cfg.Compress.WarmupCount != 4 {
-		t.Errorf("defaultConfig().Compress.WarmupCount = %d; want 4", cfg.Compress.WarmupCount)
-	}
+	// Compress defaults covered by TestDefaultCompressConfig.
 }

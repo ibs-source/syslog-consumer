@@ -177,7 +177,6 @@ func TestClientConnect_ErrorThenCancel(t *testing.T) {
 	}
 }
 
-
 func testTLSDisabled(t *testing.T) {
 	t.Helper()
 	cfg := &config.MQTTConfig{TLSEnabled: false}
@@ -705,7 +704,6 @@ func (t *slowToken) WaitTimeout(d time.Duration) bool {
 func (t *slowToken) Done() <-chan struct{} { return t.done }
 func (t *slowToken) Error() error          { return t.err }
 
-
 // --- Publish QoS 0 error path ---
 
 func TestClientPublish_QoS0_FireAndForget(t *testing.T) {
@@ -730,7 +728,6 @@ func TestClientPublish_QoS0_FireAndForget(t *testing.T) {
 		t.Errorf("QoS 0 publish should not return error, got: %v", err)
 	}
 }
-
 
 // --- handleAckMessage edge cases ---
 
@@ -791,7 +788,6 @@ func TestClientIsConnected_NilClient(t *testing.T) {
 		t.Error("expected IsConnected() = false for nil client")
 	}
 }
-
 
 // --- resubscribeAck tests ---
 
@@ -861,7 +857,6 @@ func TestRetrySleep_ContextCancel(t *testing.T) {
 		t.Error("retrySleep should return true when context is canceled")
 	}
 }
-
 
 // --- Client.Close when not connected ---
 

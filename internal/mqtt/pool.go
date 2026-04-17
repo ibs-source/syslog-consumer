@@ -23,11 +23,12 @@ type Pool struct {
 }
 
 func closeClients(logger *log.Logger, clients []*Client, count int) {
-	for j := range count {
-		if clients[j] == nil {
+	safe := clients[:min(count, len(clients))]
+	for j, c := range safe {
+		if c == nil {
 			continue
 		}
-		if err := clients[j].Close(); err != nil {
+		if err := c.Close(); err != nil {
 			logger.Warn("Error closing client %d during cleanup: %v", j, err)
 		}
 	}

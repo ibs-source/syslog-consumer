@@ -79,9 +79,9 @@ func defaultPipelineConfig() PipelineConfig {
 // defaultCompressConfig returns the default compression configuration.
 func defaultCompressConfig() CompressConfig {
 	return CompressConfig{
-		FreelistSize:       128,                // sized for max concurrent decode workers
-		MaxDecompressBytes: 256 * 1024 * 1024,  // 256 MiB — broker limit is 128 MiB
-		WarmupCount:        4,                   // pre-created decoders to avoid cold-start latency
+		FreelistSize:       128,               // sized for max concurrent decode workers
+		MaxDecompressBytes: 256 * 1024 * 1024, // 256 MiB — broker limit is 128 MiB
+		WarmupCount:        4,                 // pre-created decoders to avoid cold-start latency
 	}
 }
 
