@@ -40,8 +40,17 @@ type RedisConfig struct {
 	ReadTimeout         time.Duration
 	WriteTimeout        time.Duration
 	PingTimeout         time.Duration
-	PoolSize            int
-	MinIdleConns        int
+	// ConnMaxIdleTime forces recycling of pooled connections idle for longer
+	// than this duration. Protects against silently-dead TCP connections
+	// (e.g. NAT/conntrack eviction) that a client would otherwise reuse and
+	// then fail at health-check time. Zero disables proactive recycling.
+	ConnMaxIdleTime time.Duration
+	// ConnMaxLifetime rotates every connection after this age regardless of
+	// activity. Caps the blast radius of any single stale connection.
+	// Zero disables forced rotation.
+	ConnMaxLifetime time.Duration
+	PoolSize        int
+	MinIdleConns    int
 }
 
 // MQTTConfig holds MQTT client configuration

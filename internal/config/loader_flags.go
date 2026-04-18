@@ -10,19 +10,27 @@ var (
 	flagLogLevel = flag.String("log-level", "", "Log level (trace, debug, info, warn, error, fatal, panic)")
 
 	// Redis flags
-	flagRedisAddress            = flag.String("redis-address", "", "Redis address")
-	flagRedisStream             = flag.String("redis-stream", "", "Redis stream name (empty for multi-stream mode)")
-	flagRedisConsumer           = flag.String("redis-consumer", "", "Redis consumer name")
-	flagRedisGroupName          = flag.String("redis-group-name", "", "Redis consumer group name")
-	flagRedisBatchSize          = flag.Int("redis-batch-size", 0, "Redis batch size")
-	flagRedisBlockTimeout       = flag.Duration("redis-block-timeout", 0, "Redis block timeout")
-	flagRedisClaimIdle          = flag.Duration("redis-claim-idle", 0, "Redis claim idle time")
-	flagRedisConsumerIdle       = flag.Duration("redis-consumer-idle-timeout", 0, "Redis consumer idle timeout")
-	flagRedisCleanupInterval    = flag.Duration("redis-cleanup-interval", 0, "Redis cleanup interval")
-	flagRedisDialTimeout        = flag.Duration("redis-dial-timeout", 0, "Redis dial timeout")
-	flagRedisReadTimeout        = flag.Duration("redis-read-timeout", 0, "Redis read timeout")
-	flagRedisWriteTimeout       = flag.Duration("redis-write-timeout", 0, "Redis write timeout")
-	flagRedisPingTimeout        = flag.Duration("redis-ping-timeout", 0, "Redis ping timeout")
+	flagRedisAddress         = flag.String("redis-address", "", "Redis address")
+	flagRedisStream          = flag.String("redis-stream", "", "Redis stream name (empty for multi-stream mode)")
+	flagRedisConsumer        = flag.String("redis-consumer", "", "Redis consumer name")
+	flagRedisGroupName       = flag.String("redis-group-name", "", "Redis consumer group name")
+	flagRedisBatchSize       = flag.Int("redis-batch-size", 0, "Redis batch size")
+	flagRedisBlockTimeout    = flag.Duration("redis-block-timeout", 0, "Redis block timeout")
+	flagRedisClaimIdle       = flag.Duration("redis-claim-idle", 0, "Redis claim idle time")
+	flagRedisConsumerIdle    = flag.Duration("redis-consumer-idle-timeout", 0, "Redis consumer idle timeout")
+	flagRedisCleanupInterval = flag.Duration("redis-cleanup-interval", 0, "Redis cleanup interval")
+	flagRedisDialTimeout     = flag.Duration("redis-dial-timeout", 0, "Redis dial timeout")
+	flagRedisReadTimeout     = flag.Duration("redis-read-timeout", 0, "Redis read timeout")
+	flagRedisWriteTimeout    = flag.Duration("redis-write-timeout", 0, "Redis write timeout")
+	flagRedisPingTimeout     = flag.Duration("redis-ping-timeout", 0, "Redis ping timeout")
+	flagRedisConnMaxIdleTime = flag.Duration(
+		"redis-conn-max-idle-time", -1,
+		"Max idle time before a pooled connection is recycled (0 disables)",
+	)
+	flagRedisConnMaxLifetime = flag.Duration(
+		"redis-conn-max-lifetime", -1,
+		"Max lifetime of a pooled connection (0 disables)",
+	)
 	flagRedisPoolSize           = flag.Int("redis-pool-size", 0, "Redis connection pool size")
 	flagRedisMinIdleConns       = flag.Int("redis-min-idle-conns", 0, "Redis minimum idle connections")
 	flagRedisDiscoveryScanCount = flag.Int("redis-discovery-scan-count", 0, "Redis SCAN count hint for stream discovery")
@@ -103,6 +111,7 @@ func applyRedisFlags(cfg *RedisConfig) {
 	applyRedisFlagStrings(cfg)
 	applyRedisFlagInts(cfg)
 	applyRedisFlagTimeouts(cfg)
+	applyRedisFlagPoolLifecycle(cfg)
 }
 
 func applyRedisFlagStrings(cfg *RedisConfig) {
@@ -159,6 +168,18 @@ func applyRedisFlagTimeouts(cfg *RedisConfig) {
 	}
 	if *flagRedisPingTimeout != 0 {
 		cfg.PingTimeout = *flagRedisPingTimeout
+	}
+}
+
+// applyRedisFlagPoolLifecycle applies connection-pool recycling flags.
+// The -1 sentinel distinguishes "not set" from the valid value 0, which the
+// user may pass to disable proactive recycling.
+func applyRedisFlagPoolLifecycle(cfg *RedisConfig) {
+	if *flagRedisConnMaxIdleTime >= 0 {
+		cfg.ConnMaxIdleTime = *flagRedisConnMaxIdleTime
+	}
+	if *flagRedisConnMaxLifetime >= 0 {
+		cfg.ConnMaxLifetime = *flagRedisConnMaxLifetime
 	}
 }
 

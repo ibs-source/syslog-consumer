@@ -37,6 +37,8 @@ func TestRedisConfig_Fields(t *testing.T) {
 		ReadTimeout:         3 * time.Second,
 		WriteTimeout:        3 * time.Second,
 		PingTimeout:         2 * time.Second,
+		ConnMaxIdleTime:     5 * time.Minute,
+		ConnMaxLifetime:     30 * time.Minute,
 		PoolSize:            10,
 		MinIdleConns:        2,
 	}
@@ -55,6 +57,8 @@ func TestRedisConfig_Fields(t *testing.T) {
 		ReadTimeout:         3 * time.Second,
 		WriteTimeout:        3 * time.Second,
 		PingTimeout:         2 * time.Second,
+		ConnMaxIdleTime:     5 * time.Minute,
+		ConnMaxLifetime:     30 * time.Minute,
 		PoolSize:            10,
 		MinIdleConns:        2,
 	}

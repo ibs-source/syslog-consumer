@@ -19,6 +19,7 @@ func loadRedisFromEnv(cfg *RedisConfig) {
 	loadRedisStrings(cfg)
 	loadRedisInts(cfg)
 	loadRedisTimeouts(cfg)
+	loadRedisPoolLifecycle(cfg)
 }
 
 func loadRedisStrings(cfg *RedisConfig) {
@@ -78,6 +79,30 @@ func loadRedisTimeouts(cfg *RedisConfig) {
 	if v := getEnvDuration("REDIS_PING_TIMEOUT"); v != 0 {
 		cfg.PingTimeout = v
 	}
+}
+
+// loadRedisPoolLifecycle loads connection-pool recycling knobs from the
+// environment. Treats an explicit "0s" as a valid request to disable
+// recycling, which LookupEnv distinguishes from "not set".
+func loadRedisPoolLifecycle(cfg *RedisConfig) {
+	loadOptionalDuration("REDIS_CONN_MAX_IDLE_TIME", &cfg.ConnMaxIdleTime)
+	loadOptionalDuration("REDIS_CONN_MAX_LIFETIME", &cfg.ConnMaxLifetime)
+}
+
+// loadOptionalDuration reads an env var whose "zero" value is semantically
+// distinct from "not set"; dst is only touched when the variable is present.
+// Invalid syntax warns and leaves dst untouched.
+func loadOptionalDuration(key string, dst *time.Duration) {
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return
+	}
+	v, err := time.ParseDuration(raw)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "WARNING: invalid duration for %s=%q, using default\n", key, raw)
+		return
+	}
+	*dst = v
 }
 
 // loadMQTTFromEnv loads MQTT configuration from environment variables

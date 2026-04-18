@@ -59,12 +59,14 @@ func newBatchSlicePool(capacity int) sync.Pool {
 // NewClient creates a new Redis client
 func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:         cfg.Address,
-		DialTimeout:  cfg.DialTimeout,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		PoolSize:     cfg.PoolSize,
-		MinIdleConns: cfg.MinIdleConns,
+		Addr:            cfg.Address,
+		DialTimeout:     cfg.DialTimeout,
+		ReadTimeout:     cfg.ReadTimeout,
+		WriteTimeout:    cfg.WriteTimeout,
+		PoolSize:        cfg.PoolSize,
+		MinIdleConns:    cfg.MinIdleConns,
+		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
+		ConnMaxLifetime: cfg.ConnMaxLifetime,
 		// Explicitly disable maintenance notifications
 		// This prevents the client from sending extra commands to Redis
 		// which can add unnecessary load.

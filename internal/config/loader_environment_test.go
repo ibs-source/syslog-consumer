@@ -22,6 +22,8 @@ func TestLoadRedisFromEnv(t *testing.T) {
 	t.Setenv("REDIS_READ_TIMEOUT", "7s")
 	t.Setenv("REDIS_WRITE_TIMEOUT", "3s")
 	t.Setenv("REDIS_PING_TIMEOUT", "2s")
+	t.Setenv("REDIS_CONN_MAX_IDLE_TIME", "4m")
+	t.Setenv("REDIS_CONN_MAX_LIFETIME", "20m")
 
 	// Load from environment
 	loadRedisFromEnv(&cfg)
@@ -44,6 +46,8 @@ func TestLoadRedisFromEnv(t *testing.T) {
 		{cfg.ReadTimeout, 7 * time.Second, "ReadTimeout"},
 		{cfg.WriteTimeout, 3 * time.Second, "WriteTimeout"},
 		{cfg.PingTimeout, 2 * time.Second, "PingTimeout"},
+		{cfg.ConnMaxIdleTime, 4 * time.Minute, "ConnMaxIdleTime"},
+		{cfg.ConnMaxLifetime, 20 * time.Minute, "ConnMaxLifetime"},
 	}
 
 	for _, tt := range tests {
@@ -278,6 +282,41 @@ func TestLoadCompressFromEnv_PartialOverride(t *testing.T) {
 	}
 	if cfg.WarmupCount != 4 {
 		t.Errorf("WarmupCount = %d; want default 4", cfg.WarmupCount)
+	}
+}
+
+func TestLoadRedisFromEnv_ConnLifecycle_ExplicitZeroDisables(t *testing.T) {
+	cfg := defaultRedisConfig()
+
+	// Explicit "0s" must be honored (disables recycling) — distinct from "not set".
+	t.Setenv("REDIS_CONN_MAX_IDLE_TIME", "0s")
+	t.Setenv("REDIS_CONN_MAX_LIFETIME", "0s")
+
+	loadRedisFromEnv(&cfg)
+
+	if cfg.ConnMaxIdleTime != 0 {
+		t.Errorf("ConnMaxIdleTime = %v; want 0 (explicit disable)", cfg.ConnMaxIdleTime)
+	}
+	if cfg.ConnMaxLifetime != 0 {
+		t.Errorf("ConnMaxLifetime = %v; want 0 (explicit disable)", cfg.ConnMaxLifetime)
+	}
+}
+
+func TestLoadRedisFromEnv_ConnLifecycle_InvalidValueKeepsDefault(t *testing.T) {
+	cfg := defaultRedisConfig()
+	defaultIdle := cfg.ConnMaxIdleTime
+	defaultLife := cfg.ConnMaxLifetime
+
+	t.Setenv("REDIS_CONN_MAX_IDLE_TIME", "not-a-duration")
+	t.Setenv("REDIS_CONN_MAX_LIFETIME", "also-not")
+
+	loadRedisFromEnv(&cfg)
+
+	if cfg.ConnMaxIdleTime != defaultIdle {
+		t.Errorf("ConnMaxIdleTime = %v; want default %v", cfg.ConnMaxIdleTime, defaultIdle)
+	}
+	if cfg.ConnMaxLifetime != defaultLife {
+		t.Errorf("ConnMaxLifetime = %v; want default %v", cfg.ConnMaxLifetime, defaultLife)
 	}
 }
 

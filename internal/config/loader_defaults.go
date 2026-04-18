@@ -19,8 +19,13 @@ func defaultRedisConfig() RedisConfig {
 		ReadTimeout:         3 * time.Second, // must be > BlockTimeout
 		WriteTimeout:        3 * time.Second,
 		PingTimeout:         3 * time.Second,
-		PoolSize:            50, // enough for batch + claim + ack concurrency
-		MinIdleConns:        10, // keep warm connections ready
+		// Recycle idle connections well before NAT/conntrack eviction
+		// (typical conntrack established timeout is 5 days, but containerized
+		// bridges and intermediate NAT can drop idle flows in minutes).
+		ConnMaxIdleTime: 5 * time.Minute,
+		ConnMaxLifetime: 30 * time.Minute,
+		PoolSize:        50, // enough for batch + claim + ack concurrency
+		MinIdleConns:    10, // keep warm connections ready
 	}
 }
 

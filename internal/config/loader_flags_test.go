@@ -172,6 +172,8 @@ func TestApplyAllRedisFlags(t *testing.T) {
 		"-redis-read-timeout=4s",
 		"-redis-write-timeout=5s",
 		"-redis-ping-timeout=2s",
+		"-redis-conn-max-idle-time=7m",
+		"-redis-conn-max-lifetime=45m",
 	}
 
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -201,6 +203,64 @@ func TestApplyAllRedisFlags(t *testing.T) {
 	}
 	if cfg.PingTimeout != 2*time.Second {
 		t.Errorf("PingTimeout = %v; want 2s", cfg.PingTimeout)
+	}
+	if cfg.ConnMaxIdleTime != 7*time.Minute {
+		t.Errorf("ConnMaxIdleTime = %v; want 7m", cfg.ConnMaxIdleTime)
+	}
+	if cfg.ConnMaxLifetime != 45*time.Minute {
+		t.Errorf("ConnMaxLifetime = %v; want 45m", cfg.ConnMaxLifetime)
+	}
+}
+
+// TestApplyRedisFlags_ConnLifecycleNotSetKeepsDefault verifies that the -1 sentinel
+// for the new connection lifecycle flags means "untouched" — users must pass =0 to
+// explicitly disable recycling.
+func TestApplyRedisFlags_ConnLifecycleNotSetKeepsDefault(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	os.Args = []string{"test"} // no flags
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	resetFlags()
+	flag.Parse()
+
+	cfg := defaultRedisConfig()
+	defaultIdle := cfg.ConnMaxIdleTime
+	defaultLife := cfg.ConnMaxLifetime
+
+	applyRedisFlags(&cfg)
+
+	if cfg.ConnMaxIdleTime != defaultIdle {
+		t.Errorf("ConnMaxIdleTime = %v; want default %v", cfg.ConnMaxIdleTime, defaultIdle)
+	}
+	if cfg.ConnMaxLifetime != defaultLife {
+		t.Errorf("ConnMaxLifetime = %v; want default %v", cfg.ConnMaxLifetime, defaultLife)
+	}
+}
+
+func TestApplyRedisFlags_ConnLifecycleExplicitZeroDisables(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	os.Args = []string{
+		"test",
+		"-redis-conn-max-idle-time=0s",
+		"-redis-conn-max-lifetime=0s",
+	}
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	resetFlags()
+	flag.Parse()
+
+	cfg := defaultRedisConfig()
+	applyRedisFlags(&cfg)
+
+	if cfg.ConnMaxIdleTime != 0 {
+		t.Errorf("ConnMaxIdleTime = %v; want 0 (explicit disable)", cfg.ConnMaxIdleTime)
+	}
+	if cfg.ConnMaxLifetime != 0 {
+		t.Errorf("ConnMaxLifetime = %v; want 0 (explicit disable)", cfg.ConnMaxLifetime)
 	}
 }
 
@@ -376,6 +436,14 @@ func resetFlags() {
 	flagRedisReadTimeout = flag.Duration("redis-read-timeout", 0, "Redis read timeout")
 	flagRedisWriteTimeout = flag.Duration("redis-write-timeout", 0, "Redis write timeout")
 	flagRedisPingTimeout = flag.Duration("redis-ping-timeout", 0, "Redis ping timeout")
+	flagRedisConnMaxIdleTime = flag.Duration(
+		"redis-conn-max-idle-time", -1,
+		"Max idle time before a pooled connection is recycled (0 disables)",
+	)
+	flagRedisConnMaxLifetime = flag.Duration(
+		"redis-conn-max-lifetime", -1,
+		"Max lifetime of a pooled connection (0 disables)",
+	)
 
 	// MQTT flags
 	flagMQTTBroker = flag.String("mqtt-broker", "", "MQTT broker URL")

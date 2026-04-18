@@ -522,7 +522,7 @@ graph TB
 - **Zero-alloc hot path**: the final MQTT envelope is built directly from Redis values using pooled `jsonfast.Builder` instances, with **0 allocs/op** on the normal publish path.
 - **ACK subscription on all MQTT pool connections**: the broker may deliver ACKs on any connection, so every client in the pool subscribes to the ACK topic.
 - **Connection-state cache**: publish path checks an `atomic.Bool` instead of calling `IsConnectionOpen()` for every message.
-- **Redis pool tuning**: default `PoolSize=50`, `MinIdleConns=10` to avoid client-side connection bottlenecks during fetch/claim/ack concurrency.
+- **Redis pool tuning**: default `PoolSize=50`, `MinIdleConns=10` to avoid client-side connection bottlenecks during fetch/claim/ack concurrency. Idle connections are proactively recycled via `ConnMaxIdleTime=5m` and rotated at `ConnMaxLifetime=30m` so NAT/conntrack cannot silently drop half-open TCP flows that the pool would otherwise reuse (surfaces as `pool.go: was not able to get a healthy connection` warnings).
 
 > **Future scale-out note:** a single `fetchLoop` with `BatchSize=20000` is currently sufficient. If benchmarks ever show Redis fetch saturation, the next step is **stream sharding with multiple fetch workers**, not more per-message locking.
 
