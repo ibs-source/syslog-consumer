@@ -134,7 +134,7 @@ All configuration via environment variables. Flags override environment where ap
 | `REDIS_WRITE_TIMEOUT` | `3s` | Write timeout |
 | `REDIS_PING_TIMEOUT` | `3s` | Ping timeout |
 | `REDIS_CONN_MAX_IDLE_TIME` | `5m` | Recycle pooled connections idle longer than this (`0s` disables) |
-| `REDIS_CONN_MAX_LIFETIME` | `30m` | Rotate every pooled connection at this age (`0s` disables) |
+| `REDIS_CONN_MAX_LIFETIME` | `0s` | Rotate every pooled connection at this age (disabled by default: enabling it causes synchronized pool rotations that surface as `pool.go: was not able to get a healthy connection` log spam) |
 | `REDIS_DISCOVERY_SCAN_COUNT` | `1000` | SCAN COUNT hint for multi-stream discovery |
 
 ### MQTT

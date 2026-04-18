@@ -26,7 +26,7 @@ func TestDefaultRedisConfig(t *testing.T) {
 		{cfg.WriteTimeout, 3 * time.Second, "WriteTimeout"},
 		{cfg.PingTimeout, 3 * time.Second, "PingTimeout"},
 		{cfg.ConnMaxIdleTime, 5 * time.Minute, "ConnMaxIdleTime"},
-		{cfg.ConnMaxLifetime, 30 * time.Minute, "ConnMaxLifetime"},
+		{cfg.ConnMaxLifetime, time.Duration(0), "ConnMaxLifetime"},
 		{cfg.PoolSize, 50, "PoolSize"},
 		{cfg.MinIdleConns, 10, "MinIdleConns"},
 	}

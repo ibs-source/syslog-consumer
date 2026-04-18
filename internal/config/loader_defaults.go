@@ -23,7 +23,12 @@ func defaultRedisConfig() RedisConfig {
 		// (typical conntrack established timeout is 5 days, but containerized
 		// bridges and intermediate NAT can drop idle flows in minutes).
 		ConnMaxIdleTime: 5 * time.Minute,
-		ConnMaxLifetime: 30 * time.Minute,
+		// Lifetime rotation left disabled: when enabled, the initial burst of
+		// connections opened at boot all expire together and surface as
+		// "pool.go: was not able to get a healthy connection" log spam at
+		// every lifetime interval. Idle recycling above already breaks
+		// long-lived zombie connections, which was the original motivation.
+		ConnMaxLifetime: 0,
 		PoolSize:        50, // enough for batch + claim + ack concurrency
 		MinIdleConns:    10, // keep warm connections ready
 	}
