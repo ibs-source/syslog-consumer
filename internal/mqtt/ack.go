@@ -1,7 +1,6 @@
 package mqtt
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
@@ -19,30 +18,26 @@ type ackParser struct {
 func (p *ackParser) handleField(key, value []byte) bool {
 	switch string(key) {
 	case `"ids"`:
-		jsonfast.IterateStringArrayUnsafe(value, func(id string) bool {
+		jsonfast.IterateStringArray(value, func(id string) bool {
 			p.ack.IDs = append(p.ack.IDs, strings.Clone(id))
 			return true
 		})
 		p.found |= 1
 	case `"stream"`:
-		if len(value) >= 2 && value[0] == '"' {
-			p.ack.Stream = string(value[1 : len(value)-1])
+		if s, ok := jsonfast.DecodeString(value); ok {
+			p.ack.Stream = s
 		}
 		p.found |= 2
 	case `"ack"`:
-		p.ack.Ack = bytes.Equal(value, []byte("true"))
+		if v, ok := jsonfast.DecodeBool(value); ok {
+			p.ack.Ack = v
+		}
 		p.found |= 4
 	}
 	return true
 }
 
-// parseAck parses an ACK message from JSON payload using go-jsonfast's
-// single-pass scanner. The ACK schema is:
-//
-//	{"ids":["id1","id2",...],"stream":"…","ack":true/false}
-//
-// This avoids encoding/json.Unmarshal overhead (~10x faster) and delegates
-// all JSON scanning to go-jsonfast's SWAR-accelerated primitives.
+// parseAck parses an ACK payload: {"ids":[...],"stream":"…","ack":bool}.
 func parseAck(payload []byte) (message.AckMessage, error) {
 	var p ackParser
 	if !jsonfast.IterateFields(payload, p.handleField) {

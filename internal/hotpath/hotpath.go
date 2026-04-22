@@ -382,32 +382,21 @@ var (
 	fkRaw      = jsonfast.NewFieldKey("raw")
 )
 
-// buildPayload produces a tab-separated line: id\tstream\t{flat event JSON}
-//
-// The "object" value from the Redis message is parsed inline: structured_data
-// is flattened recursively, severity is mapped to a human-readable name,
-// and all other fields pass through as raw JSON. The "raw" field is added
-// as a top-level string (empty → "-").
-//
-// SAFETY: the returned slice is only valid until the next buildPayload call
-// on the same builder.
+// buildPayload produces "id\tstream\t{event JSON}" by flattening
+// structured_data, mapping severity→name, and passing through the rest.
+// The returned slice is valid until the next call on the same builder.
 func (hp *HotPath) buildPayload(builder *jsonfast.Builder, msg *message.Redis) []byte {
 	builder.Reset()
 
-	// Tab-separated ACK metadata prefix.
-	builder.AppendRawString(msg.ID) // Redis IDs are always ASCII-safe digits and hyphens
+	builder.AppendRawString(msg.ID)
 	builder.AppendRawString("\t")
-	builder.AppendRawString(msg.Stream) // stream names are always safe ASCII in practice
+	builder.AppendRawString(msg.Stream)
 	builder.AppendRawString("\t")
 
 	builder.BeginObject()
 
-	// Parse the "object" JSON: iterate fields, flatten structured_data,
-	// map severity number → name, pass through everything else.
-	// IterateFieldsString avoids the []byte(string) allocation.
 	if msg.Object != "" {
 		jsonfast.IterateFieldsString(msg.Object, func(key, value []byte) bool {
-			// key includes quotes; strip them for comparison.
 			name := key[1 : len(key)-1]
 			switch len(name) {
 			case 15: // "structured_data"
@@ -523,18 +512,16 @@ func streamShard(stream string, shards int) int {
 	return int(h) % shards
 }
 
-// ackWorker is a persistent goroutine that batches ACK messages by stream
-// and flushes them on a timer or when the batch reaches a threshold.
-// Each worker owns a dedicated channel (sharded by stream hash), so all
-// ACKs for the same stream converge here — maximizing batch sizes.
+// ackWorker batches ACK messages per stream and flushes on timer or
+// threshold. Each worker owns a sharded channel so same-stream ACKs
+// coalesce here.
 func (hp *HotPath) ackWorker(ch <-chan message.AckMessage) {
-	// Single-stream fast path: avoids map overhead entirely.
 	if hp.singleStream {
 		hp.ackWorkerSingle(ch)
 		return
 	}
 
-	pending := make(map[string]*pendingACK, 4) // pre-allocate for typical stream count
+	pending := make(map[string]*pendingACK, 4)
 	timer := time.NewTimer(hp.ackFlushInterval)
 	timer.Stop()
 	armed := false
@@ -697,14 +684,10 @@ func (hp *HotPath) flushACKs(stream string, p *pendingACK) {
 	}
 }
 
-// Close cleans up resources.
-//
-// Tickers are stopped here AND deferred in Run(). This is intentional:
-// time.Ticker.Stop is idempotent and safe to call multiple times.
-// Run's defer handles the normal shutdown path; Close covers the case
-// where the caller tears down the HotPath without Run completing.
+// Close cancels in-flight ACK goroutines and stops tickers. Safe to
+// call even if Run never completed; ticker.Stop is idempotent.
 func (hp *HotPath) Close() error {
-	hp.lifecycleCancel() // Cancel all in-flight ACK goroutines
+	hp.lifecycleCancel()
 	hp.claimTicker.Stop()
 	hp.cleanupTicker.Stop()
 	if hp.refreshTicker != nil {

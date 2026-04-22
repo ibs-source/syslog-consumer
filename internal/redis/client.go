@@ -17,10 +17,8 @@ import (
 	"github.com/redis/go-redis/v9/maintnotifications"
 )
 
-// isNoGroupError checks if the error is a Redis NOGROUP error,
-// which occurs when the stream or consumer group has been deleted.
-// Redis returns errors prefixed with the error code (e.g. "NOGROUP No such key ..."),
-// so HasPrefix is the correct and precise check.
+// isNoGroupError reports whether err is a Redis NOGROUP (stream or
+// consumer group deleted). Redis prefixes such errors with "NOGROUP".
 func isNoGroupError(err error) bool {
 	if err == nil {
 		return false
@@ -32,13 +30,13 @@ func isNoGroupError(err error) bool {
 type Client struct {
 	rdb                *redis.Client
 	log                *log.Logger
-	batchPool          sync.Pool // reuses []message.Redis slices across ReadBatch calls
-	claimPool          sync.Pool // reuses []message.Redis slices across ClaimIdle calls
+	batchPool          sync.Pool
+	claimPool          sync.Pool
 	consumer           string
 	groupName          string
 	streams            []string
-	streamsArg         []string     // pre-allocated XREADGROUP args, rebuilt only when streams change
-	mu                 sync.RWMutex // protects streams
+	streamsArg         []string
+	mu                 sync.RWMutex // protects streams, streamsArg
 	batchSize          int64
 	blockTimeout       time.Duration
 	claimIdle          time.Duration
@@ -168,22 +166,17 @@ func (c *Client) ensureGroups(ctx context.Context, streams []string) error {
 	return nil
 }
 
-// ReadBatch fetches messages using XREADGROUP.
-// Raw Redis field maps are passed through as-is; serialization happens in the hot path.
-//
-// SAFETY: streamsArg is only accessed by ReadBatch, which runs in a single goroutine (fetchLoop).
+// ReadBatch fetches messages via XREADGROUP. streamsArg is only touched
+// by this function, which runs in a single fetchLoop goroutine.
 func (c *Client) ReadBatch(ctx context.Context) (message.Batch, error) {
 	c.mu.RLock()
 	streams := c.streams
 	c.mu.RUnlock()
 
-	// Handle empty stream list (multi-stream mode with no streams discovered yet)
 	if len(streams) == 0 {
 		return message.Batch{}, nil
 	}
 
-	// Rebuild streamsArg only when the streams list has changed.
-	// Format: [stream1, stream2, ..., ">", ">", ...] as required by go-redis XReadGroupArgs.
 	if c.streamsArgDirty.CompareAndSwap(true, false) {
 		n := len(streams)
 		c.streamsArg = c.streamsArg[:0]
@@ -210,7 +203,6 @@ func (c *Client) ReadBatch(ctx context.Context) (message.Batch, error) {
 		return message.Batch{}, nil
 	}
 
-	// Borrow a pooled slice to avoid allocating a new backing array per batch.
 	pv := c.batchPool.Get()
 	bp, ok := pv.(*[]message.Redis)
 	if !ok {
@@ -355,17 +347,14 @@ func (c *Client) claimMessages(
 	return claimed, nil
 }
 
-// RefreshStreams rediscovers Redis streams and updates the streams list (multi-stream mode only).
-// Returns the number of new streams discovered.
-//
-// SAFETY: called only from refreshLoop (single goroutine). The RLock/Lock
-// split is safe because no concurrent caller modifies c.streams.
+// RefreshStreams rediscovers Redis streams and updates the streams
+// list. Called only from refreshLoop (single goroutine) so the
+// RLock/Lock split is safe. Returns the number of new streams added.
 func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 	if !c.multiStreamMode {
-		return 0, nil // No-op in single-stream mode
+		return 0, nil
 	}
 
-	// Discover current streams
 	discoveredStreams, err := c.DiscoverStreams(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to discover streams: %w", err)

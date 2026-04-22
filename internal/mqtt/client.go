@@ -64,7 +64,6 @@ func NewClient(cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
 	opts.SetAutoReconnect(true)
 	opts.SetMaxReconnectInterval(cfg.MaxReconnectInterval)
 
-	// Performance optimizations.
 	opts.SetKeepAlive(cfg.KeepAlive)
 	opts.SetPingTimeout(cfg.PingTimeout)
 	opts.SetMessageChannelDepth(cfg.MessageChannelDepth)
@@ -89,7 +88,6 @@ func NewClient(cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
 		c.resubscribeAck(mc)
 	})
 
-	// Configure TLS if enabled
 	if cfg.TLSEnabled {
 		tlsConfig, err := newTLSConfig(cfg)
 		if err != nil {
@@ -149,13 +147,10 @@ func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 		MinVersion: tls.VersionTLS12,
 	}
 
-	// InsecureSkipVerify is configurable for testing environments.
-	// When enabled it weakens TLS security and should not be used in production.
 	if cfg.InsecureSkip {
 		tlsConfig.InsecureSkipVerify = true
 	}
 
-	// Load CA certificate if provided
 	if cfg.CACert != "" {
 		caCert, err := os.ReadFile(cfg.CACert)
 		if err != nil {
@@ -169,7 +164,6 @@ func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 		tlsConfig.RootCAs = caCertPool
 	}
 
-	// Load client certificate and key if provided
 	if cfg.ClientCert != "" && cfg.ClientKey != "" {
 		cert, err := tls.LoadX509KeyPair(cfg.ClientCert, cfg.ClientKey)
 		if err != nil {
@@ -181,11 +175,8 @@ func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// Publish sends a message to the MQTT broker.
-// For QoS 0, publish is fire-and-forget (no broker ACK expected).
+// Publish sends a message to the MQTT broker. QoS 0 is fire-and-forget.
 func (c *Client) Publish(ctx context.Context, payload []byte) error {
-	// Check cached connection state (updated by OnConnect/ConnectionLost handlers)
-	// to avoid the overhead of checking the paho client on every publish.
 	if !c.connected.Load() {
 		return errNotConnected
 	}

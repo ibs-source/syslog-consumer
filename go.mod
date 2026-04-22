@@ -7,7 +7,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/klauspost/compress v1.18.5
 	github.com/redis/go-redis/v9 v9.16.0
-	github.com/ubyte-source/go-jsonfast v0.0.3
+	github.com/ubyte-source/go-jsonfast v0.2.0
 	golang.org/x/sync v0.18.0
 )
 
