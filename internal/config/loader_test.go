@@ -45,8 +45,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Pipeline.BufferCapacity != 10000 {
 		t.Errorf("Pipeline.BufferCapacity = %d; want 10000", cfg.Pipeline.BufferCapacity)
 	}
-	if cfg.Pipeline.PublishWorkers != 50 {
-		t.Errorf("Pipeline.PublishWorkers = %d; want 50", cfg.Pipeline.PublishWorkers)
+	if cfg.Pipeline.PublishWorkers != 25 {
+		t.Errorf("Pipeline.PublishWorkers = %d; want 25", cfg.Pipeline.PublishWorkers)
 	}
 }
 

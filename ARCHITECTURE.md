@@ -532,7 +532,7 @@ Recommended production settings:
 
 - `GOEXPERIMENT=greenteagc` at build time
 - `GOGC=200` at runtime for lower GC frequency
-- optionally `GOMEMLIMIT=4GiB` (or sized to the host/container memory budget)
+- optionally `GOMEMLIMIT=2GiB` (or sized to the host/container memory budget)
 
 ### Latency Breakdown
 

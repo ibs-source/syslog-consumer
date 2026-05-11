@@ -75,7 +75,7 @@ func defaultPipelineConfig() PipelineConfig {
 		ShutdownTimeout:         10 * time.Second,      // faster drain on shutdown
 		ErrorBackoff:            50 * time.Millisecond, // minimal pause, lose ~1000 msgs max
 		AckTimeout:              5 * time.Second,
-		PublishWorkers:          50, // 50 workers / 25 pool connections = 2 workers/conn
+		PublishWorkers:          25, // 1 worker per MQTT pool connection
 		AckWorkers:              50, // keep ACK throughput aligned with publish throughput
 		RefreshInterval:         1 * time.Minute,
 		AckFlushInterval:        10 * time.Millisecond, // timer interval for batched ACK flush

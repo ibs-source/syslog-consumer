@@ -27,7 +27,7 @@ func run() int {
 		debug.SetGCPercent(200)
 	}
 	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(4 << 30) // 4 GiB
+		debug.SetMemoryLimit(2 << 30) // 2 GiB
 	}
 
 	logger := log.New()

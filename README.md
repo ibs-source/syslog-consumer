@@ -250,7 +250,7 @@ make docker-build # Docker image
 - **TLS/mTLS** for MQTT with automatic certificate renewal via `wrapper`/`manager` scripts
 - **Non-root** container user
 - **HEALTHCHECK** built into Dockerfile
-- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=4GiB`, `GOEXPERIMENT=greenteagc`
+- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=2GiB`, `GOEXPERIMENT=greenteagc`
 - Never hardcode credentials — inject `CERTIFICATE_CERTIFICATE_DEPLOYER_KEY` at runtime via secrets
 
 For security policy and vulnerability reporting, see [SECURITY.md](SECURITY.md).

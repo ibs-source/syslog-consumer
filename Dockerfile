@@ -32,7 +32,7 @@ ENV CERTIFICATE_RENEWAL_INTERVAL=21600
 # by triggering GC more aggressively as memory approaches the limit.
 # Override GOMEMLIMIT at deployment based on container memory (target ~80%).
 ENV GOGC=200
-ENV GOMEMLIMIT=4GiB
+ENV GOMEMLIMIT=2GiB
 
 ARG TIMEZONE="UTC"
 

@@ -88,7 +88,7 @@ func TestDefaultPipelineConfig(t *testing.T) {
 		{cfg.ShutdownTimeout, 10 * time.Second, "ShutdownTimeout"},
 		{cfg.ErrorBackoff, 50 * time.Millisecond, "ErrorBackoff"},
 		{cfg.AckTimeout, 5 * time.Second, "AckTimeout"},
-		{cfg.PublishWorkers, 50, "PublishWorkers"},
+		{cfg.PublishWorkers, 25, "PublishWorkers"},
 		{cfg.RefreshInterval, 1 * time.Minute, "RefreshInterval"},
 		{cfg.HealthAddr, ":9980", "HealthAddr"},
 	}
@@ -151,8 +151,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Pipeline.BufferCapacity != 10000 {
 		t.Errorf("defaultConfig().Pipeline.BufferCapacity = %d; want 10000", cfg.Pipeline.BufferCapacity)
 	}
-	if cfg.Pipeline.PublishWorkers != 50 {
-		t.Errorf("defaultConfig().Pipeline.PublishWorkers = %d; want 50", cfg.Pipeline.PublishWorkers)
+	if cfg.Pipeline.PublishWorkers != 25 {
+		t.Errorf("defaultConfig().Pipeline.PublishWorkers = %d; want 25", cfg.Pipeline.PublishWorkers)
 	}
 
 	// Compress defaults covered by TestDefaultCompressConfig.

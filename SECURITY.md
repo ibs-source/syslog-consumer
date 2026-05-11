@@ -34,7 +34,7 @@ The pipeline enforces the following bounds to prevent resource exhaustion:
 | ACK buffer depth | 10000 (default) | `PIPELINE_BUFFER_CAPACITY` |
 | Redis batch size | 20000 (default) | `REDIS_BATCH_SIZE` |
 | MQTT pool size | 25 (default) | `MQTT_POOL_SIZE` |
-| Memory limit | 4 GiB (default) | `GOMEMLIMIT` |
+| Memory limit | 2 GiB (default) | `GOMEMLIMIT` |
 
 ## Production Hardening
 
@@ -42,4 +42,4 @@ The pipeline enforces the following bounds to prevent resource exhaustion:
 - **Non-root** container user in Dockerfile
 - **Hardcoded credentials** — inject real `CERTIFICATE_DEPLOYER_KEY` via runtime secrets
 - **Certificate lifecycle** managed by `wrapper`/`manager` scripts with automatic renewal
-- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=4GiB`, `GOEXPERIMENT=greenteagc`
+- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=2GiB`, `GOEXPERIMENT=greenteagc`
