@@ -8,6 +8,12 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
+const (
+	testStreamS1  = "s1"
+	testStreamS2  = "s2"
+	testGroupName = "test-group"
+)
+
 // Note: Most functions in Client require a live Redis connection (NewClient, ReadBatch,
 // ClaimIdle, AckAndDelete, ensureGroup) and are better tested via integration tests.
 // These functions interact with Redis streams and cannot be easily mocked without
@@ -77,7 +83,7 @@ func TestIsNoGroupError(t *testing.T) {
 func TestHandleReadError_RedisNil(t *testing.T) {
 	c := &Client{
 		log:     log.New(),
-		streams: []string{"s1"},
+		streams: []string{testStreamS1},
 	}
 	err := c.handleReadError(t.Context(), goredis.Nil)
 	if err != nil {
@@ -88,7 +94,7 @@ func TestHandleReadError_RedisNil(t *testing.T) {
 func TestHandleReadError_GenericError(t *testing.T) {
 	c := &Client{
 		log:     log.New(),
-		streams: []string{"s1"},
+		streams: []string{testStreamS1},
 	}
 	origErr := errors.New("connection refused")
 	err := c.handleReadError(t.Context(), origErr)

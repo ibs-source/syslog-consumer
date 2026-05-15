@@ -2,11 +2,40 @@ package hotpath
 
 import "strconv"
 
-const severityInfo = "INFO"
+// Syslog severity indices (RFC 5424 §6.2.1).
+const (
+	sevEmergency = iota
+	sevAlert
+	sevCritical
+	sevError
+	sevWarning
+	sevNotice
+	sevInfo
+	sevDebug
+	sevCount
+)
 
-var severityNames = [8]string{
-	"EMERGENCY", "ALERT", "CRITICAL", "ERROR",
-	"WARNING", "NOTICE", severityInfo, "DEBUG",
+// Syslog severity display names.
+const (
+	severityEmergency = "EMERGENCY"
+	severityAlert     = "ALERT"
+	severityCritical  = "CRITICAL"
+	severityError     = "ERROR"
+	severityWarning   = "WARNING"
+	severityNotice    = "NOTICE"
+	severityInfo      = "INFO"
+	severityDebug     = "DEBUG"
+)
+
+var severityNames = [sevCount]string{
+	sevEmergency: severityEmergency,
+	sevAlert:     severityAlert,
+	sevCritical:  severityCritical,
+	sevError:     severityError,
+	sevWarning:   severityWarning,
+	sevNotice:    severityNotice,
+	sevInfo:      severityInfo,
+	sevDebug:     severityDebug,
 }
 
 // severityName converts raw JSON severity bytes (0–7) to a name.
@@ -16,7 +45,7 @@ func severityName(raw []byte) string {
 		return severityNames[raw[0]-'0']
 	}
 	n, err := strconv.Atoi(string(raw))
-	if err != nil || n < 0 || n >= len(severityNames) {
+	if err != nil || n < 0 || n >= sevCount {
 		return severityInfo
 	}
 	return severityNames[n]

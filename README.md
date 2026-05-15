@@ -3,6 +3,9 @@
 > A production-grade, zero-data-loss Redis Streams → MQTT message pipeline with lock-free hot path.
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-blue.svg)](https://golang.org)
+[![Lint](https://github.com/ibs-source/syslog-consumer/actions/workflows/lint.yml/badge.svg)](https://github.com/ibs-source/syslog-consumer/actions/workflows/lint.yml)
+[![Test](https://github.com/ibs-source/syslog-consumer/actions/workflows/test.yml/badge.svg)](https://github.com/ibs-source/syslog-consumer/actions/workflows/test.yml)
+[![Security](https://github.com/ibs-source/syslog-consumer/actions/workflows/security.yml/badge.svg)](https://github.com/ibs-source/syslog-consumer/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/License-See%20LICENSE-green.svg)](LICENSE)
 [![PGO](https://img.shields.io/badge/PGO-enabled-brightgreen.svg)](default.pgo)
 
@@ -67,7 +70,7 @@ graph TB
 - 🔌 **MQTT Connection Pooling** — round-robin load balancing across configurable pool size
 - 🛡️ **TLS/mTLS** — full encryption and mutual authentication with automatic certificate renewal
 - 📊 **Self-Contained Messages** — each message carries all metadata for stateless processing
-- ⚙️ **PGO-Optimized** — profile-guided optimization for ~5–15% throughput gain in production
+- ⚙️ **PGO-Optimized** — profile-guided optimization wired via `make pgo` / `make build-pgo`
 
 ## 🚀 Quick Start
 
@@ -79,7 +82,7 @@ cd syslog-consumer
 make build-pgo
 ```
 
-Requires **Go 1.25+**, a reachable **Redis 6+** instance, and an **MQTT 3.1.1** broker.
+Requires **Go 1.25.10+** (pinned in `go.mod`, fetched via `GOTOOLCHAIN=auto`), a reachable **Redis 6+** instance, and an **MQTT 3.1.1** broker.
 
 ### 💡 Basic Usage
 
@@ -173,7 +176,7 @@ All configuration via environment variables. Flags override environment where ap
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PIPELINE_PUBLISH_WORKERS` | `50` | Concurrent publish workers |
+| `PIPELINE_PUBLISH_WORKERS` | `25` | Concurrent publish workers |
 | `PIPELINE_ACK_WORKERS` | `50` | Concurrent ACK workers |
 | `PIPELINE_BUFFER_CAPACITY` | `10000` | ACK channel depth |
 | `PIPELINE_MESSAGE_QUEUE_CAPACITY` | `500` | Fetch→publish queue depth |
@@ -240,7 +243,7 @@ make vet         # Static analysis
 
 ```bash
 make build       # Standard build
-make build-pgo   # PGO-optimized build (~5-15% throughput gain)
+make build-pgo   # PGO-optimized build (uses default.pgo)
 make pgo         # Regenerate PGO profile from benchmarks
 make docker-build # Docker image
 ```
@@ -250,14 +253,15 @@ make docker-build # Docker image
 - **TLS/mTLS** for MQTT with automatic certificate renewal via `wrapper`/`manager` scripts
 - **Non-root** container user
 - **HEALTHCHECK** built into Dockerfile
-- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=2GiB`, `GOEXPERIMENT=greenteagc`
-- Never hardcode credentials — inject `CERTIFICATE_CERTIFICATE_DEPLOYER_KEY` at runtime via secrets
+- **GC tuning (runtime)**: `GOGC=200`, `GOMEMLIMIT=2GiB` (applied automatically by the binary if not set)
+- **GC tuning (build-time)**: `GOEXPERIMENT=greenteagc` baked in by the Dockerfile builder; not a runtime knob
+- Never hardcode credentials — inject `CERTIFICATE_DEPLOYER_KEY` at runtime via secrets
 
 For security policy and vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## 🧠 Design Principles
 
-1. **Stateless design.** All state in Redis for crash recovery — no local caching.
+1. **Stateless design.** All durable state lives in Redis (no local caching of pending IDs or consumer state). In-process `sync.Pool`s and a zstd decoder freelist are used only as allocation reuse and do not hold business state.
 2. **Self-contained messages.** Each message carries all metadata for processing.
 3. **Fail-fast configuration.** Validate all settings at startup before connecting.
 4. **Horizontal scalability.** Add consumer instances without coordination.
@@ -277,7 +281,7 @@ syslog-consumer/
 │   ├── compress/                       # Zstd compression utilities
 │   ├── message/                        # Message types (RedisMessage, AckMessage)
 │   ├── health/                         # HTTP health check server
-│   ├── metrics/                        # Prometheus metrics (placeholder)
+│   ├── metrics/                        # expvar counters exposed on /debug/vars
 │   └── log/                            # Structured logger
 ├── wrapper                             # Container entrypoint (cert lifecycle + process monitor)
 ├── manager                             # Certificate manager (expiration, revocation, renewal)

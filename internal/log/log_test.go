@@ -2,9 +2,17 @@ package log
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
+)
+
+const (
+	levelLabelDebug = "DEBUG"
+	levelLabelInfo  = "INFO"
+	levelLabelWarn  = "WARN"
+	levelLabelError = "ERROR"
 )
 
 func TestNew(t *testing.T) {
@@ -29,12 +37,12 @@ func TestNew_CustomLevels(t *testing.T) {
 		level    string
 		expected slog.Level
 	}{
-		{"trace", LevelTrace},
-		{"debug", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"warning", slog.LevelWarn},
-		{"error", slog.LevelError},
+		{lvlTrace, LevelTrace},
+		{lvlDebug, slog.LevelDebug},
+		{lvlInfo, slog.LevelInfo},
+		{lvlWarn, slog.LevelWarn},
+		{lvlWarning, slog.LevelWarn},
+		{lvlError, slog.LevelError},
 		{"invalid", slog.LevelInfo}, // Should default to Info
 	}
 
@@ -55,14 +63,14 @@ func TestSetLevel(t *testing.T) {
 		level    string
 		expected slog.Level
 	}{
-		{"trace", LevelTrace},
-		{"debug", slog.LevelDebug},
-		{"info", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"warning", slog.LevelWarn},
-		{"error", slog.LevelError},
-		{"fatal", LevelFatal},
-		{"panic", LevelPanic},
+		{lvlTrace, LevelTrace},
+		{lvlDebug, slog.LevelDebug},
+		{lvlInfo, slog.LevelInfo},
+		{lvlWarn, slog.LevelWarn},
+		{lvlWarning, slog.LevelWarn},
+		{lvlError, slog.LevelError},
+		{lvlFatal, LevelFatal},
+		{lvlPanic, LevelPanic},
 	}
 
 	for _, tt := range tests {
@@ -101,7 +109,7 @@ func newTestLogger(buf *bytes.Buffer, level slog.Level) *Logger {
 					return a
 				}
 				if lvl <= LevelTrace {
-					a.Value = slog.StringValue("TRACE")
+					a.Value = slog.StringValue(labelTrace)
 				}
 			}
 			return a
@@ -115,11 +123,11 @@ func newWithHandler(h slog.Handler, level *slog.LevelVar) *Logger {
 	return &Logger{log: slog.New(h), level: level}
 }
 
-func TestTrace(t *testing.T) {
+func TestTracef(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, LevelTrace)
 
-	logger.Trace("test trace message")
+	logger.Tracef(context.Background(), "test trace message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test trace message") {
@@ -127,11 +135,11 @@ func TestTrace(t *testing.T) {
 	}
 }
 
-func TestTraceWithFields(t *testing.T) {
+func TestTraceWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, LevelTrace)
 
-	logger.TraceWithFields(Fields{"key": "value"}, "test trace")
+	logger.TraceWithFieldsf(context.Background(), Fields{"key": "value"}, "test trace")
 
 	output := buf.String()
 	if !strings.Contains(output, "test trace") || !strings.Contains(output, "key=value") {
@@ -139,11 +147,11 @@ func TestTraceWithFields(t *testing.T) {
 	}
 }
 
-func TestDebug(t *testing.T) {
+func TestDebugf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelDebug)
 
-	logger.Debug("test debug message")
+	logger.Debugf(context.Background(), "test debug message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test debug message") {
@@ -151,11 +159,11 @@ func TestDebug(t *testing.T) {
 	}
 }
 
-func TestDebugWithFields(t *testing.T) {
+func TestDebugWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelDebug)
 
-	logger.DebugWithFields(Fields{"id": "123"}, "test debug")
+	logger.DebugWithFieldsf(context.Background(), Fields{"id": "123"}, "test debug")
 
 	output := buf.String()
 	if !strings.Contains(output, "test debug") || !strings.Contains(output, "id=123") {
@@ -163,11 +171,11 @@ func TestDebugWithFields(t *testing.T) {
 	}
 }
 
-func TestInfo(t *testing.T) {
+func TestInfof(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelInfo)
 
-	logger.Info("test info message")
+	logger.Infof(context.Background(), "test info message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test info message") {
@@ -175,11 +183,11 @@ func TestInfo(t *testing.T) {
 	}
 }
 
-func TestInfoWithFields(t *testing.T) {
+func TestInfoWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelInfo)
 
-	logger.InfoWithFields(Fields{"status": "ok"}, "test info")
+	logger.InfoWithFieldsf(context.Background(), Fields{"status": "ok"}, "test info")
 
 	output := buf.String()
 	if !strings.Contains(output, "test info") || !strings.Contains(output, "status=ok") {
@@ -187,11 +195,11 @@ func TestInfoWithFields(t *testing.T) {
 	}
 }
 
-func TestWarn(t *testing.T) {
+func TestWarnf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelWarn)
 
-	logger.Warn("test warn message")
+	logger.Warnf(context.Background(), "test warn message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test warn message") {
@@ -199,11 +207,11 @@ func TestWarn(t *testing.T) {
 	}
 }
 
-func TestWarnWithFields(t *testing.T) {
+func TestWarnWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelWarn)
 
-	logger.WarnWithFields(Fields{"reason": "timeout"}, "test warn")
+	logger.WarnWithFieldsf(context.Background(), Fields{"reason": "timeout"}, "test warn")
 
 	output := buf.String()
 	if !strings.Contains(output, "test warn") || !strings.Contains(output, "reason=timeout") {
@@ -211,11 +219,11 @@ func TestWarnWithFields(t *testing.T) {
 	}
 }
 
-func TestError(t *testing.T) {
+func TestErrorf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelError)
 
-	logger.Error("test error message")
+	logger.Errorf(context.Background(), "test error message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test error message") {
@@ -223,11 +231,11 @@ func TestError(t *testing.T) {
 	}
 }
 
-func TestErrorWithFields(t *testing.T) {
+func TestErrorWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelError)
 
-	logger.ErrorWithFields(Fields{"code": "500"}, "test error")
+	logger.ErrorWithFieldsf(context.Background(), Fields{"code": "500"}, "test error")
 
 	output := buf.String()
 	if !strings.Contains(output, "test error") || !strings.Contains(output, "code=500") {
@@ -240,7 +248,7 @@ func TestWithField(t *testing.T) {
 	logger := newTestLogger(&buf, slog.LevelInfo)
 
 	child := logger.WithField("user", "john")
-	child.Info("test message")
+	child.Infof(context.Background(), "test message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test message") || !strings.Contains(output, "user=john") {
@@ -256,7 +264,7 @@ func TestWithFields(t *testing.T) {
 		"user":   "john",
 		"action": "login",
 	})
-	child.Info("test message")
+	child.Infof(context.Background(), "test message")
 
 	output := buf.String()
 	if !strings.Contains(output, "test message") {
@@ -267,7 +275,7 @@ func TestWithFields(t *testing.T) {
 	}
 }
 
-func TestPanic(t *testing.T) {
+func TestPanicf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, slog.LevelError)
 
@@ -280,12 +288,12 @@ func TestPanic(t *testing.T) {
 			t.Errorf("expected panic value 'panic message', got %v", r)
 		}
 	}()
-	logger.Panic("panic message")
+	logger.Panicf(context.Background(), "panic message")
 }
 
 func TestLevel(t *testing.T) {
 	logger := New()
-	logger.SetLevel("debug")
+	logger.SetLevel(lvlDebug)
 	if logger.Level() != slog.LevelDebug {
 		t.Errorf("expected debug level, got %v", logger.Level())
 	}
@@ -294,7 +302,7 @@ func TestLevel(t *testing.T) {
 func TestNew_ReplaceAttr_TraceLabel(t *testing.T) {
 	// Use New() which installs the replaceAttr function, then log at TRACE level
 	// and verify the level label is "TRACE".
-	t.Setenv("LOG_LEVEL", "trace")
+	t.Setenv("LOG_LEVEL", lvlTrace)
 	logger := New()
 
 	// Verify New() correctly configures trace level via replaceAttr
@@ -311,9 +319,9 @@ func TestNew_ReplaceAttr_TraceLabel(t *testing.T) {
 		},
 	})
 	l := newWithHandler(h, lv)
-	l.Trace("trace test")
+	l.Tracef(context.Background(), "trace test")
 
-	if !strings.Contains(buf.String(), "TRACE") {
+	if !strings.Contains(buf.String(), labelTrace) {
 		t.Errorf("expected TRACE label in output, got: %s", buf.String())
 	}
 
@@ -331,13 +339,13 @@ func TestReplaceAttr_Direct(t *testing.T) {
 		wantVal string
 		level   slog.Level
 	}{
-		{"TRACE", "TRACE", LevelTrace},
-		{"DEBUG", "DEBUG", slog.LevelDebug},
-		{"INFO", "INFO", slog.LevelInfo},
-		{"WARN", "WARN", slog.LevelWarn},
-		{"ERROR", "ERROR", slog.LevelError},
-		{"FATAL", "FATAL", LevelFatal},
-		{"PANIC", "PANIC", LevelPanic},
+		{levelLabelDebug, levelLabelDebug, slog.LevelDebug},
+		{levelLabelInfo, levelLabelInfo, slog.LevelInfo},
+		{levelLabelWarn, levelLabelWarn, slog.LevelWarn},
+		{levelLabelError, levelLabelError, slog.LevelError},
+		{labelTrace, labelTrace, LevelTrace},
+		{labelFatal, labelFatal, LevelFatal},
+		{labelPanic, labelPanic, LevelPanic},
 	}
 
 	for _, tt := range tests {
@@ -359,7 +367,7 @@ func TestReplaceAttr_NonLevelKey(t *testing.T) {
 	}
 }
 
-func TestPanicWithFields(t *testing.T) {
+func TestPanicWithFieldsf(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf, LevelPanic)
 
@@ -372,7 +380,7 @@ func TestPanicWithFields(t *testing.T) {
 			t.Errorf("expected panic value 'panic with fields', got %v", r)
 		}
 	}()
-	logger.PanicWithFields(Fields{"key": "val"}, "panic with fields")
+	logger.PanicWithFieldsf(context.Background(), Fields{"key": "val"}, "panic with fields")
 }
 
 // --- ReplaceAttr FATAL/PANIC label tests ---
@@ -404,7 +412,7 @@ func TestReplaceAttr_FatalLabel(t *testing.T) {
 	logger.log.Log(t.Context(), LevelFatal, "fatal test")
 
 	output := buf.String()
-	if !strings.Contains(output, "FATAL") {
+	if !strings.Contains(output, labelFatal) {
 		t.Errorf("expected FATAL label in output, got: %s", output)
 	}
 }
@@ -417,7 +425,7 @@ func TestReplaceAttr_PanicLabel(t *testing.T) {
 	logger.log.Log(t.Context(), LevelPanic, "panic test")
 
 	output := buf.String()
-	if !strings.Contains(output, "PANIC") {
+	if !strings.Contains(output, labelPanic) {
 		t.Errorf("expected PANIC label in output, got: %s", output)
 	}
 }
@@ -428,13 +436,13 @@ func TestReplaceAttr_AllLevelLabels(t *testing.T) {
 		expected string
 		level    slog.Level
 	}{
-		{"TRACE", "TRACE", LevelTrace},
-		{"DEBUG", "DEBUG", slog.LevelDebug},
-		{"INFO", "INFO", slog.LevelInfo},
-		{"WARN", "WARN", slog.LevelWarn},
-		{"ERROR", "ERROR", slog.LevelError},
-		{"FATAL", "FATAL", LevelFatal},
-		{"PANIC", "PANIC", LevelPanic},
+		{labelTrace, labelTrace, LevelTrace},
+		{levelLabelDebug, levelLabelDebug, slog.LevelDebug},
+		{levelLabelInfo, levelLabelInfo, slog.LevelInfo},
+		{levelLabelWarn, levelLabelWarn, slog.LevelWarn},
+		{levelLabelError, levelLabelError, slog.LevelError},
+		{labelFatal, labelFatal, LevelFatal},
+		{labelPanic, labelPanic, LevelPanic},
 	}
 
 	for _, tt := range tests {
@@ -458,15 +466,15 @@ func TestSetLevelVar_AllCases(t *testing.T) {
 		input    string
 		expected slog.Level
 	}{
-		{"trace", LevelTrace},
-		{"debug", slog.LevelDebug},
-		{"info", slog.LevelInfo},
+		{lvlTrace, LevelTrace},
+		{lvlDebug, slog.LevelDebug},
+		{lvlInfo, slog.LevelInfo},
 		{"", slog.LevelInfo},
-		{"warn", slog.LevelWarn},
-		{"warning", slog.LevelWarn},
-		{"error", slog.LevelError},
-		{"fatal", LevelFatal},
-		{"panic", LevelPanic},
+		{lvlWarn, slog.LevelWarn},
+		{lvlWarning, slog.LevelWarn},
+		{lvlError, slog.LevelError},
+		{lvlFatal, LevelFatal},
+		{lvlPanic, LevelPanic},
 		{"unknown", slog.LevelInfo},
 	}
 

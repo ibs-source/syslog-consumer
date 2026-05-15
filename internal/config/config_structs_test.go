@@ -23,8 +23,8 @@ func TestConfigStructs_ZeroValue(t *testing.T) {
 
 func TestRedisConfig_Fields(t *testing.T) {
 	got := RedisConfig{
-		Address:             "localhost:6379",
-		Stream:              "syslog-stream",
+		Address:             defaultRedisAddress,
+		Stream:              defaultStreamName,
 		Consumer:            "c1",
 		GroupName:           "grp",
 		BatchSize:           100,
@@ -43,8 +43,8 @@ func TestRedisConfig_Fields(t *testing.T) {
 		MinIdleConns:        2,
 	}
 	want := RedisConfig{
-		Address:             "localhost:6379",
-		Stream:              "syslog-stream",
+		Address:             defaultRedisAddress,
+		Stream:              defaultStreamName,
 		Consumer:            "c1",
 		GroupName:           "grp",
 		BatchSize:           100,
@@ -123,7 +123,7 @@ func TestMQTTConfig_Fields(t *testing.T) {
 
 func TestPipelineConfig_Fields(t *testing.T) {
 	got := PipelineConfig{
-		HealthAddr:              ":9980",
+		HealthAddr:              defaultHealthAddr,
 		HealthPingTimeout:       2 * time.Second,
 		HealthReadHeaderTimeout: 5 * time.Second,
 		ShutdownTimeout:         30 * time.Second,
@@ -138,7 +138,7 @@ func TestPipelineConfig_Fields(t *testing.T) {
 		AckBatchSize:            50,
 	}
 	want := PipelineConfig{
-		HealthAddr:              ":9980",
+		HealthAddr:              defaultHealthAddr,
 		HealthPingTimeout:       2 * time.Second,
 		HealthReadHeaderTimeout: 5 * time.Second,
 		ShutdownTimeout:         30 * time.Second,
@@ -166,10 +166,10 @@ func TestLogConfig_Fields(t *testing.T) {
 
 func TestConfig_Composite(t *testing.T) {
 	cfg := Config{
-		Log:  LogConfig{Level: "info"},
-		MQTT: MQTTConfig{Broker: "tcp://localhost:1883"},
+		Log:  LogConfig{Level: defaultLogLevel},
+		MQTT: MQTTConfig{Broker: defaultMQTTBroker},
 		Redis: RedisConfig{
-			Address: "localhost:6379",
+			Address: defaultRedisAddress,
 			Stream:  "stream",
 		},
 		Pipeline: PipelineConfig{
@@ -178,13 +178,13 @@ func TestConfig_Composite(t *testing.T) {
 		},
 	}
 
-	if cfg.Log.Level != "info" {
+	if cfg.Log.Level != defaultLogLevel {
 		t.Errorf("Log.Level = %q", cfg.Log.Level)
 	}
-	if cfg.MQTT.Broker != "tcp://localhost:1883" {
+	if cfg.MQTT.Broker != defaultMQTTBroker {
 		t.Errorf("MQTT.Broker = %q", cfg.MQTT.Broker)
 	}
-	if cfg.Redis.Address != "localhost:6379" {
+	if cfg.Redis.Address != defaultRedisAddress {
 		t.Errorf("Redis.Address = %q", cfg.Redis.Address)
 	}
 	if cfg.Pipeline.PublishWorkers != 2 {

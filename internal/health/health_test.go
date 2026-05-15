@@ -44,36 +44,36 @@ func TestHealthz(t *testing.T) {
 			pinger:     &mockPinger{},
 			mqtt:       &mockMQTT{connected: true},
 			wantCode:   http.StatusOK,
-			wantStatus: "ok",
-			wantRedis:  "ok",
-			wantMQTT:   "ok",
+			wantStatus: statusOK,
+			wantRedis:  statusOK,
+			wantMQTT:   statusOK,
 		},
 		{
 			name:       "RedisDegraded",
 			pinger:     &mockPinger{err: errors.New("connection refused")},
 			mqtt:       &mockMQTT{connected: true},
 			wantCode:   http.StatusServiceUnavailable,
-			wantStatus: "degraded",
+			wantStatus: statusDegraded,
 			wantRedis:  "connection refused",
-			wantMQTT:   "ok",
+			wantMQTT:   statusOK,
 		},
 		{
 			name:       "MQTTDisconnected",
 			pinger:     &mockPinger{},
 			mqtt:       &mockMQTT{connected: false},
 			wantCode:   http.StatusServiceUnavailable,
-			wantStatus: "degraded",
-			wantRedis:  "ok",
-			wantMQTT:   "disconnected",
+			wantStatus: statusDegraded,
+			wantRedis:  statusOK,
+			wantMQTT:   statusDisconnected,
 		},
 		{
 			name:       "NilMQTT",
 			pinger:     &mockPinger{},
 			mqtt:       nil,
 			wantCode:   http.StatusOK,
-			wantStatus: "ok",
-			wantRedis:  "ok",
-			wantMQTT:   "ok",
+			wantStatus: statusOK,
+			wantRedis:  statusOK,
+			wantMQTT:   statusOK,
 		},
 	}
 
@@ -87,7 +87,7 @@ func checkHealthz(t *testing.T, tc *healthzCase) {
 
 	srv := NewServer(":0", tc.pinger, tc.mqtt, 2*time.Second, 5*time.Second)
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", http.NoBody)
 	rec := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(rec, req)
 
@@ -113,7 +113,7 @@ func checkHealthz(t *testing.T, tc *healthzCase) {
 func TestHealthz_ContentType(t *testing.T) {
 	srv := NewServer(":0", &mockPinger{}, &mockMQTT{connected: true}, 2*time.Second, 5*time.Second)
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", http.NoBody)
 	rec := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(rec, req)
 
@@ -126,7 +126,7 @@ func TestHealthz_ContentType(t *testing.T) {
 func TestDebugVars(t *testing.T) {
 	srv := NewServer(":0", &mockPinger{}, &mockMQTT{connected: true}, 2*time.Second, 5*time.Second)
 
-	req := httptest.NewRequest(http.MethodGet, "/debug/vars", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/debug/vars", http.NoBody)
 	rec := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(rec, req)
 
@@ -141,7 +141,7 @@ func TestDebugVars(t *testing.T) {
 
 func TestListenAndServe_InvalidAddr(t *testing.T) {
 	srv := NewServer("invalid-addr-no-port", &mockPinger{}, &mockMQTT{connected: true}, 2*time.Second, 5*time.Second)
-	err := srv.ListenAndServe()
+	err := srv.ListenAndServe(t.Context())
 	if err == nil {
 		t.Fatal("expected error for invalid address")
 	}
@@ -152,7 +152,7 @@ func TestShutdown(t *testing.T) {
 
 	// Start the server in background
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.ListenAndServe(t.Context()); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.Errorf("ListenAndServe(): %v", err)
 		}
 	}()

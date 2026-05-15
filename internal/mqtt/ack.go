@@ -1,20 +1,18 @@
 package mqtt
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/ibs-source/syslog-consumer/internal/message"
 	"github.com/ubyte-source/go-jsonfast"
 )
 
-// ackParser holds intermediate state while parsing an ACK JSON payload.
 type ackParser struct {
 	ack   message.AckMessage
 	found int // bitmask: 1=ids, 2=stream, 4=ack
 }
 
-// handleField processes a single key/value pair from the JSON object.
 func (p *ackParser) handleField(key, value []byte) bool {
 	switch string(key) {
 	case `"ids"`:
@@ -37,22 +35,21 @@ func (p *ackParser) handleField(key, value []byte) bool {
 	return true
 }
 
-// parseAck parses an ACK payload: {"ids":[...],"stream":"…","ack":bool}.
+// parseAck expects the payload {"ids":[...],"stream":"…","ack":bool}.
 func parseAck(payload []byte) (message.AckMessage, error) {
 	var p ackParser
 	if !jsonfast.IterateFields(payload, p.handleField) {
-		return message.AckMessage{}, fmt.Errorf("ack: malformed JSON")
+		return message.AckMessage{}, errors.New("ack: malformed JSON")
 	}
 	return validateAck(p.ack, p.found)
 }
 
-// validateAck checks that all required fields were found.
 func validateAck(ack message.AckMessage, found int) (message.AckMessage, error) {
 	if found&1 == 0 || len(ack.IDs) == 0 {
-		return message.AckMessage{}, fmt.Errorf("ack missing required field: ids")
+		return message.AckMessage{}, errors.New("ack missing required field: ids")
 	}
 	if found&2 == 0 || ack.Stream == "" {
-		return message.AckMessage{}, fmt.Errorf("ack missing required field: stream")
+		return message.AckMessage{}, errors.New("ack missing required field: stream")
 	}
 	return ack, nil
 }

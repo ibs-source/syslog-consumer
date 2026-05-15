@@ -3,17 +3,16 @@ package config
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// applyRuntimeValidation applies runtime validations and transformations
 func applyRuntimeValidation(cfg *Config) error {
 	return applyTopicPrefix(cfg)
 }
 
-// applyTopicPrefix prefixes MQTT topics with certificate CN if configured
 func applyTopicPrefix(cfg *Config) error {
 	if cfg.MQTT.UseCertCNPrefix && cfg.MQTT.ClientCert != "" {
 		cn, err := extractCNFromCertFile(cfg.MQTT.ClientCert)
@@ -26,7 +25,6 @@ func applyTopicPrefix(cfg *Config) error {
 	return nil
 }
 
-// extractCNFromCertFile extracts the CN from a PEM certificate file
 func extractCNFromCertFile(certPath string) (string, error) {
 	certPEM, err := os.ReadFile(filepath.Clean(certPath))
 	if err != nil {
@@ -35,7 +33,7 @@ func extractCNFromCertFile(certPath string) (string, error) {
 
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
-		return "", fmt.Errorf("failed to decode PEM certificate")
+		return "", errors.New("failed to decode PEM certificate")
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -44,7 +42,7 @@ func extractCNFromCertFile(certPath string) (string, error) {
 	}
 
 	if cert.Subject.CommonName == "" {
-		return "", fmt.Errorf("certificate has no CN")
+		return "", errors.New("certificate has no CN")
 	}
 
 	return cert.Subject.CommonName, nil

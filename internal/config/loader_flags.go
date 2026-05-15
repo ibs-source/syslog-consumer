@@ -4,12 +4,10 @@ import (
 	"flag"
 )
 
-// Command line flags (have precedence over environment variables)
+// Flags take precedence over environment variables.
 var (
-	// Log flags
 	flagLogLevel = flag.String("log-level", "", "Log level (trace, debug, info, warn, error, fatal, panic)")
 
-	// Redis flags
 	flagRedisAddress         = flag.String("redis-address", "", "Redis address")
 	flagRedisStream          = flag.String("redis-stream", "", "Redis stream name (empty for multi-stream mode)")
 	flagRedisConsumer        = flag.String("redis-consumer", "", "Redis consumer name")
@@ -35,24 +33,22 @@ var (
 	flagRedisMinIdleConns       = flag.Int("redis-min-idle-conns", 0, "Redis minimum idle connections")
 	flagRedisDiscoveryScanCount = flag.Int("redis-discovery-scan-count", 0, "Redis SCAN count hint for stream discovery")
 
-	// MQTT flags
-	flagMQTTBroker            = flag.String("mqtt-broker", "", "MQTT broker URL")
-	flagMQTTClientID          = flag.String("mqtt-client-id", "", "MQTT client ID")
-	flagMQTTPublishTopic      = flag.String("mqtt-publish-topic", "", "MQTT publish topic")
-	flagMQTTAckTopic          = flag.String("mqtt-ack-topic", "", "MQTT ACK topic")
-	flagMQTTQoS               = flag.Int("mqtt-qos", -1, "MQTT QoS (0, 1, or 2)")
-	flagMQTTConnectTimeout    = flag.Duration("mqtt-connect-timeout", 0, "MQTT connect timeout")
-	flagMQTTWriteTimeout      = flag.Duration("mqtt-write-timeout", 0, "MQTT write timeout")
-	flagMQTTPoolSize          = flag.Int("mqtt-pool-size", 0, "MQTT connection pool size")
-	flagMQTTMaxReconnect      = flag.Duration("mqtt-max-reconnect-interval", 0, "MQTT max reconnect interval")
-	flagMQTTSubscribeTimeout  = flag.Duration("mqtt-subscribe-timeout", 0, "MQTT subscribe timeout")
-	flagMQTTDisconnectTimeout = flag.Duration("mqtt-disconnect-timeout", 0, "MQTT disconnect timeout")
-	flagMQTTTLSEnabled        = flag.Bool("mqtt-tls-enabled", false, "Enable MQTT TLS")
-	flagMQTTCACert            = flag.String("mqtt-ca-cert", "", "MQTT CA certificate path")
-	flagMQTTClientCert        = flag.String("mqtt-client-cert", "", "MQTT client certificate path")
-	flagMQTTClientKey         = flag.String("mqtt-client-key", "", "MQTT client key path")
-	flagMQTTTLSInsecureSkip   = flag.Bool("mqtt-tls-insecure-skip", false, "Skip MQTT TLS verification")
-	// Prefix topics with client cert CN (for ACL constraints)
+	flagMQTTBroker               = flag.String("mqtt-broker", "", "MQTT broker URL")
+	flagMQTTClientID             = flag.String("mqtt-client-id", "", "MQTT client ID")
+	flagMQTTPublishTopic         = flag.String("mqtt-publish-topic", "", "MQTT publish topic")
+	flagMQTTAckTopic             = flag.String("mqtt-ack-topic", "", "MQTT ACK topic")
+	flagMQTTQoS                  = flag.Int("mqtt-qos", -1, "MQTT QoS (0, 1, or 2)")
+	flagMQTTConnectTimeout       = flag.Duration("mqtt-connect-timeout", 0, "MQTT connect timeout")
+	flagMQTTWriteTimeout         = flag.Duration("mqtt-write-timeout", 0, "MQTT write timeout")
+	flagMQTTPoolSize             = flag.Int("mqtt-pool-size", 0, "MQTT connection pool size")
+	flagMQTTMaxReconnect         = flag.Duration("mqtt-max-reconnect-interval", 0, "MQTT max reconnect interval")
+	flagMQTTSubscribeTimeout     = flag.Duration("mqtt-subscribe-timeout", 0, "MQTT subscribe timeout")
+	flagMQTTDisconnectTimeout    = flag.Duration("mqtt-disconnect-timeout", 0, "MQTT disconnect timeout")
+	flagMQTTTLSEnabled           = flag.Bool("mqtt-tls-enabled", false, "Enable MQTT TLS")
+	flagMQTTCACert               = flag.String("mqtt-ca-cert", "", "MQTT CA certificate path")
+	flagMQTTClientCert           = flag.String("mqtt-client-cert", "", "MQTT client certificate path")
+	flagMQTTClientKey            = flag.String("mqtt-client-key", "", "MQTT client key path")
+	flagMQTTTLSInsecureSkip      = flag.Bool("mqtt-tls-insecure-skip", false, "Skip MQTT TLS verification")
 	flagMQTTUseCertCNPrefix      = flag.Bool("mqtt-use-cert-cn-prefix", false, "Prefix topics with client cert CN")
 	flagMQTTKeepAlive            = flag.Duration("mqtt-keep-alive", 0, "MQTT keep-alive interval")
 	flagMQTTPingTimeout          = flag.Duration("mqtt-ping-timeout", 0, "MQTT ping response timeout")
@@ -60,12 +56,10 @@ var (
 	flagMQTTMessageChannelDepth  = flag.Int("mqtt-message-channel-depth", 0, "MQTT internal message queue depth")
 	flagMQTTMaxResumePubInFlight = flag.Int("mqtt-max-resume-pub-in-flight", 0, "MQTT max resumed unacked publishes")
 
-	// Compress flags
 	flagCompressFreelistSize       = flag.Int("compress-freelist-size", 0, "Decoder freelist channel capacity")
 	flagCompressMaxDecompressBytes = flag.Int("max-decompress-bytes", 0, "Max decompressed payload size in bytes")
 	flagCompressWarmupCount        = flag.Int("compress-warmup-count", 0, "Decoders pre-created at init")
 
-	// Pipeline flags
 	flagPipelineBufferCapacity  = flag.Int("pipeline-buffer-capacity", 0, "Pipeline buffer capacity")
 	flagPipelineShutdownTimeout = flag.Duration("pipeline-shutdown-timeout", 0, "Pipeline shutdown timeout")
 	flagPipelineErrorBackoff    = flag.Duration("pipeline-error-backoff", 0, "Pipeline error backoff")
@@ -99,14 +93,12 @@ var (
 	)
 )
 
-// applyLogFlags applies command line flags to logging configuration.
 func applyLogFlags(cfg *LogConfig) {
 	if *flagLogLevel != "" {
 		cfg.Level = *flagLogLevel
 	}
 }
 
-// applyRedisFlags applies command line flags to Redis configuration
 func applyRedisFlags(cfg *RedisConfig) {
 	applyRedisFlagStrings(cfg)
 	applyRedisFlagInts(cfg)
@@ -171,9 +163,8 @@ func applyRedisFlagTimeouts(cfg *RedisConfig) {
 	}
 }
 
-// applyRedisFlagPoolLifecycle applies connection-pool recycling flags.
-// The -1 sentinel distinguishes "not set" from the valid value 0, which the
-// user may pass to disable proactive recycling.
+// applyRedisFlagPoolLifecycle uses -1 as "not set" so that 0 can still be a
+// valid user value meaning "disable proactive recycling".
 func applyRedisFlagPoolLifecycle(cfg *RedisConfig) {
 	if *flagRedisConnMaxIdleTime >= 0 {
 		cfg.ConnMaxIdleTime = *flagRedisConnMaxIdleTime
@@ -183,7 +174,6 @@ func applyRedisFlagPoolLifecycle(cfg *RedisConfig) {
 	}
 }
 
-// applyMQTTFlags applies command line flags to MQTT configuration
 func applyMQTTFlags(cfg *MQTTConfig) {
 	applyMQTTFlagStrings(cfg)
 	applyMQTTFlagInts(cfg)
@@ -262,7 +252,6 @@ func applyMQTTFlagTLS(cfg *MQTTConfig) {
 }
 
 func applyMQTTFlagBools(cfg *MQTTConfig) {
-	// Handle bool flags - check if explicitly set
 	if isFlagSet("mqtt-tls-enabled") {
 		cfg.TLSEnabled = *flagMQTTTLSEnabled
 	}
@@ -274,7 +263,6 @@ func applyMQTTFlagBools(cfg *MQTTConfig) {
 	}
 }
 
-// applyCompressFlags applies command line flags to compression configuration.
 func applyCompressFlags(cfg *CompressConfig) {
 	if *flagCompressFreelistSize != 0 {
 		cfg.FreelistSize = *flagCompressFreelistSize
@@ -287,7 +275,6 @@ func applyCompressFlags(cfg *CompressConfig) {
 	}
 }
 
-// applyPipelineFlags applies command line flags to Pipeline configuration.
 func applyPipelineFlags(cfg *PipelineConfig) {
 	applyPipelineFlagInts(cfg)
 	applyPipelineFlagDurations(cfg)
@@ -338,7 +325,6 @@ func applyPipelineFlagDurations(cfg *PipelineConfig) {
 	}
 }
 
-// isFlagSet checks if a flag was explicitly set on the command line
 func isFlagSet(name string) bool {
 	found := false
 	flag.Visit(func(f *flag.Flag) {

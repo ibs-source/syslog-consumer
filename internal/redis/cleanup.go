@@ -9,7 +9,8 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/metrics"
 )
 
-// CleanupDeadConsumers removes inactive consumers from the consumer group.
+// CleanupDeadConsumers drops every consumer (other than this one) whose idle
+// time exceeds idleTimeout, releasing their pending entries back to the group.
 func (c *Client) CleanupDeadConsumers(ctx context.Context, idleTimeout time.Duration) error {
 	totalRemovedCount := 0
 
@@ -20,14 +21,14 @@ func (c *Client) CleanupDeadConsumers(ctx context.Context, idleTimeout time.Dura
 	for _, stream := range streams {
 		removedCount, err := c.cleanupDeadConsumersForStream(ctx, stream, idleTimeout)
 		if err != nil {
-			c.log.Warn("failed to cleanup dead consumers for stream %s: %v", stream, err)
+			c.log.Warnf(ctx, "failed to cleanup dead consumers for stream %s: %v", stream, err)
 			continue
 		}
 		totalRemovedCount += removedCount
 	}
 
 	if totalRemovedCount > 0 {
-		c.log.Info("Cleaned up %d dead consumers", totalRemovedCount)
+		c.log.Infof(ctx, "Cleaned up %d dead consumers", totalRemovedCount)
 		metrics.DeadConsumersRemoved.Add(int64(totalRemovedCount))
 	}
 
@@ -39,11 +40,10 @@ func (c *Client) cleanupDeadConsumersForStream(
 ) (int, error) {
 	consumers, err := c.rdb.XInfoConsumers(ctx, stream, c.groupName).Result()
 	if err != nil {
-		// Stream or group was deleted; recreate the group so it's ready for future use
 		if isNoGroupError(err) {
-			c.log.Warn("Consumer group missing for stream '%s' during cleanup, recreating", stream)
+			c.log.Warnf(ctx, "Consumer group missing for stream '%s' during cleanup, recreating", stream)
 			if gerr := c.ensureGroups(ctx, []string{stream}); gerr != nil {
-				c.log.Warn("Failed to recreate group for stream '%s': %v", stream, gerr)
+				c.log.Warnf(ctx, "Failed to recreate group for stream '%s': %v", stream, gerr)
 			}
 			return 0, nil
 		}
@@ -58,20 +58,18 @@ func (c *Client) cleanupDeadConsumersForStream(
 		}
 
 		if consumer.Idle > idleTimeout {
-			c.log.Info("Removing dead consumer %s from stream %s (idle for %s)", consumer.Name, stream, consumer.Idle)
+			c.log.Infof(ctx, "Removing dead consumer %s from stream %s (idle for %s)", consumer.Name, stream, consumer.Idle)
 
-			// XGroupDelConsumer returns the number of pending messages the
-			// deleted consumer had; the consumer is always removed on success.
 			deleted, err := c.rdb.XGroupDelConsumer(ctx, stream, c.groupName, consumer.Name).Result()
 			if err != nil {
-				c.log.Error("Failed to delete consumer %s from stream %s: %v", consumer.Name, stream, err)
+				c.log.Errorf(ctx, "Failed to delete consumer %s from stream %s: %v", consumer.Name, stream, err)
 				continue
 			}
 
-			c.log.Info("Deleted consumer %s from stream %s (%d pending messages released)", consumer.Name, stream, deleted)
+			c.log.Infof(ctx, "Deleted consumer %s from stream %s (%d pending messages released)", consumer.Name, stream, deleted)
 			removedCount++
 		} else {
-			c.log.Debug("Consumer %s on stream %s is active (idle for %s)", consumer.Name, stream, consumer.Idle)
+			c.log.Debugf(ctx, "Consumer %s on stream %s is active (idle for %s)", consumer.Name, stream, consumer.Idle)
 		}
 	}
 

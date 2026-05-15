@@ -12,17 +12,17 @@ import (
 	"time"
 )
 
-// Pinger abstracts the ability to check a connection's liveness.
+// Pinger is the subset of a backend client needed for liveness checks.
 type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// ConnectionChecker reports whether an outbound connection is alive.
+// ConnectionChecker reports whether an outbound connection is currently open.
 type ConnectionChecker interface {
 	IsConnected() bool
 }
 
-// Server provides /healthz and /debug/vars endpoints.
+// Server exposes /healthz and /debug/vars.
 type Server struct {
 	httpServer  *http.Server
 	redis       Pinger
@@ -30,7 +30,8 @@ type Server struct {
 	pingTimeout time.Duration
 }
 
-// NewServer creates a health server listening on the given address (e.g. ":9980").
+// NewServer wires the health endpoint; addr follows the net.Listen "host:port"
+// form (e.g. ":9980"). mqttChecker may be nil to skip the MQTT probe.
 func NewServer(
 	addr string,
 	redisPinger Pinger,
@@ -57,20 +58,26 @@ func NewServer(
 	return s
 }
 
-// ListenAndServe starts serving HTTP requests. It blocks until the server
-// is shut down or encounters a fatal error.
-func (s *Server) ListenAndServe() error {
-	ln, err := net.Listen("tcp", s.httpServer.Addr)
+// ListenAndServe blocks until the server is shut down or fails.
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.httpServer.Addr)
 	if err != nil {
 		return fmt.Errorf("health server listen: %w", err)
 	}
 	return s.httpServer.Serve(ln)
 }
 
-// Shutdown gracefully stops the server.
+// Shutdown waits for in-flight handlers until ctx fires.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
+
+const (
+	statusOK           = "ok"
+	statusDegraded     = "degraded"
+	statusDisconnected = "disconnected"
+)
 
 type healthResponse struct {
 	Status string `json:"status"`
@@ -82,18 +89,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.pingTimeout)
 	defer cancel()
 
-	resp := healthResponse{Status: "ok", Redis: "ok", MQTT: "ok"}
+	resp := healthResponse{Status: statusOK, Redis: statusOK, MQTT: statusOK}
 	statusCode := http.StatusOK
 
 	if err := s.redis.Ping(ctx); err != nil {
-		resp.Status = "degraded"
+		resp.Status = statusDegraded
 		resp.Redis = err.Error()
 		statusCode = http.StatusServiceUnavailable
 	}
 
 	if s.mqtt != nil && !s.mqtt.IsConnected() {
-		resp.Status = "degraded"
-		resp.MQTT = "disconnected"
+		resp.Status = statusDegraded
+		resp.MQTT = statusDisconnected
 		statusCode = http.StatusServiceUnavailable
 	}
 
@@ -101,10 +108,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(statusCode)
 	data, err := json.Marshal(resp)
 	if err != nil {
-		slog.Error("health: marshal response", "error", err)
+		slog.ErrorContext(ctx, "health: marshal response", "error", err)
 		return
 	}
 	if _, err = w.Write(data); err != nil {
-		slog.Error("health: write response", "error", err)
+		slog.ErrorContext(ctx, "health: write response", "error", err)
 	}
 }

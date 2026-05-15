@@ -3,7 +3,6 @@ package mqtt
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -95,8 +94,8 @@ func testMQTTConfig() *config.MQTTConfig {
 	return &config.MQTTConfig{
 		Broker:               "tcp://127.0.0.1:1883",
 		ClientID:             "test-client",
-		PublishTopic:         "test/pub",
-		AckTopic:             "test/ack",
+		PublishTopic:         tcTopicPub,
+		AckTopic:             tcTopicAck,
 		QoS:                  0,
 		ConnectTimeout:       5 * time.Millisecond,
 		WriteTimeout:         5 * time.Millisecond,
@@ -108,7 +107,7 @@ func testMQTTConfig() *config.MQTTConfig {
 
 func TestNewClient_Success(t *testing.T) {
 	cfg := testMQTTConfig()
-	client, err := NewClient(cfg, log.New())
+	client, err := NewClient(t.Context(), cfg, log.New())
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -125,7 +124,7 @@ func TestNewClient_TLSConfigError(t *testing.T) {
 	cfg.TLSEnabled = true
 	cfg.CACert = "/nonexistent/ca.pem"
 
-	_, err := NewClient(cfg, log.New())
+	_, err := NewClient(t.Context(), cfg, log.New())
 	if err == nil {
 		t.Fatal("expected TLS config error, got nil")
 	}
@@ -346,7 +345,7 @@ func TestClientStructure(t *testing.T) {
 	// Test that we can create a client struct (even if we can't connect)
 	client := &Client{
 		publishTopic: "test/publish",
-		ackTopic:     "test/ack",
+		ackTopic:     tcTopicAck,
 		qos:          1,
 	}
 
@@ -354,7 +353,7 @@ func TestClientStructure(t *testing.T) {
 		t.Errorf("Expected publishTopic 'test/publish', got '%s'", client.publishTopic)
 	}
 
-	if client.ackTopic != "test/ack" {
+	if client.ackTopic != tcTopicAck {
 		t.Errorf("Expected ackTopic 'test/ack', got '%s'", client.ackTopic)
 	}
 
@@ -367,11 +366,11 @@ func TestClientStructure(t *testing.T) {
 func TestHandleAckMessage(t *testing.T) {
 	client := &Client{log: log.New()}
 
-	t.Run("NoHandler", func(_ *testing.T) {
+	t.Run("NoHandler", func(t *testing.T) {
 		// Should not panic when handler is nil
 		enc := compress.NewEncoder()
 		payload := compress.EncodeWith(enc, nil, []byte(`{"ids":["123"],"stream":"s","ack":true}`))
-		client.handleAckMessage(payload)
+		client.handleAckMessage(t.Context(), payload)
 	})
 
 	t.Run("CompressedPayload", func(t *testing.T) {
@@ -389,7 +388,7 @@ func TestHandleAckMessage(t *testing.T) {
 
 		ackPayload := []byte(`{"ids":["123"],"stream":"test-stream","ack":true}`)
 		payload := compress.EncodeWith(compress.NewEncoder(), nil, ackPayload)
-		client.handleAckMessage(payload)
+		client.handleAckMessage(t.Context(), payload)
 
 		if !called {
 			t.Error("Handler was not called")
@@ -406,7 +405,7 @@ func TestHandleAckMessage(t *testing.T) {
 		}
 		client.ackHandler.Store(&handler)
 
-		client.handleAckMessage([]byte(`{"ids":["456"],"stream":"s","ack":true}`))
+		client.handleAckMessage(t.Context(), []byte(`{"ids":["456"],"stream":"s","ack":true}`))
 
 		if !called {
 			t.Error("Handler was not called for plain payload")
@@ -419,12 +418,12 @@ func TestHandleAckMessage(t *testing.T) {
 		client.ackHandler.Store(&handler)
 
 		// Valid zstd magic but garbage body.
-		client.handleAckMessage([]byte{0x28, 0xB5, 0x2F, 0xFD, 0xFF, 0xFF})
+		client.handleAckMessage(t.Context(), []byte{0x28, 0xB5, 0x2F, 0xFD, 0xFF, 0xFF})
 		if called {
 			t.Error("Handler should not be called for invalid compressed data")
 		}
 
-		client.handleAckMessage([]byte(`invalid json`))
+		client.handleAckMessage(t.Context(), []byte(`invalid json`))
 		if called {
 			t.Error("Handler should not be called for invalid JSON")
 		}
@@ -497,7 +496,7 @@ func TestClientPublish_QoS0(t *testing.T) {
 	mock := &mockPahoClient{
 		connected: true,
 		publishFn: func(topic string, qos byte, _ bool, _ any) paho.Token {
-			if topic != "test/pub" {
+			if topic != tcTopicPub {
 				t.Errorf("topic = %q, want test/pub", topic)
 			}
 			if qos != 0 {
@@ -508,7 +507,7 @@ func TestClientPublish_QoS0(t *testing.T) {
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          0,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -530,7 +529,7 @@ func TestClientPublish_QoS1(t *testing.T) {
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          1,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -554,7 +553,7 @@ func TestClientPublish_QoS1_Timeout(t *testing.T) {
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          1,
 		writeTimeout: 10 * time.Millisecond,
 		log:          log.New(),
@@ -577,7 +576,7 @@ func TestClientPublish_QoS1_ContextCancel(t *testing.T) {
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          1,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -594,7 +593,7 @@ func TestClientPublish_QoS1_ContextCancel(t *testing.T) {
 }
 
 func TestClientPublish_QoS1_Error(t *testing.T) {
-	publishErr := fmt.Errorf("broker rejected")
+	publishErr := errors.New("broker rejected")
 	mock := &mockPahoClient{
 		connected: true,
 		publishFn: func(_ string, _ byte, _ bool, _ any) paho.Token {
@@ -603,7 +602,7 @@ func TestClientPublish_QoS1_Error(t *testing.T) {
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          1,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -626,14 +625,14 @@ func TestClientSubscribeAck_Success(t *testing.T) {
 	}
 	c := &Client{
 		client:           mock,
-		ackTopic:         "test/ack",
+		ackTopic:         tcTopicAck,
 		qos:              0,
 		subscribeTimeout: 5 * time.Second,
 		log:              log.New(),
 	}
 
 	var handlerCalled bool
-	err := c.SubscribeAck(func(_ message.AckMessage) { handlerCalled = true })
+	err := c.SubscribeAck(t.Context(), func(_ message.AckMessage) { handlerCalled = true })
 	if err != nil {
 		t.Errorf("SubscribeAck() error = %v", err)
 	}
@@ -650,20 +649,20 @@ func TestClientSubscribeAck_Timeout(t *testing.T) {
 	}
 	c := &Client{
 		client:           mock,
-		ackTopic:         "test/ack",
+		ackTopic:         tcTopicAck,
 		qos:              0,
 		subscribeTimeout: 10 * time.Millisecond, // short timeout
 		log:              log.New(),
 	}
 
-	err := c.SubscribeAck(func(_ message.AckMessage) {})
+	err := c.SubscribeAck(t.Context(), func(_ message.AckMessage) {})
 	if err == nil {
 		t.Error("expected timeout error")
 	}
 }
 
 func TestClientSubscribeAck_Error(t *testing.T) {
-	subErr := fmt.Errorf("subscription rejected")
+	subErr := errors.New("subscription rejected")
 	mock := &mockPahoClient{
 		subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
 			return &mockPahoToken{err: subErr}
@@ -671,13 +670,13 @@ func TestClientSubscribeAck_Error(t *testing.T) {
 	}
 	c := &Client{
 		client:           mock,
-		ackTopic:         "test/ack",
+		ackTopic:         tcTopicAck,
 		qos:              0,
 		subscribeTimeout: 5 * time.Second,
 		log:              log.New(),
 	}
 
-	err := c.SubscribeAck(func(_ message.AckMessage) {})
+	err := c.SubscribeAck(t.Context(), func(_ message.AckMessage) {})
 	if err == nil {
 		t.Error("expected subscription error")
 	}
@@ -710,12 +709,12 @@ func TestClientPublish_QoS0_FireAndForget(t *testing.T) {
 	mock := &mockPahoClient{
 		connected: true,
 		publishFn: func(_ string, _ byte, _ bool, _ any) paho.Token {
-			return &mockPahoToken{err: fmt.Errorf("qos0 error")}
+			return &mockPahoToken{err: errors.New("qos0 error")}
 		},
 	}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          0,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -741,7 +740,7 @@ func TestHandleAckMessage_EmptyStreamRejected(t *testing.T) {
 	}
 	client.ackHandler.Store(&handler)
 	// Stream is empty → parseAck should reject
-	client.handleAckMessage([]byte(`{"ids":["123"],"ack":true}`))
+	client.handleAckMessage(t.Context(), []byte(`{"ids":["123"],"ack":true}`))
 	if called {
 		t.Error("handler should not be called for empty stream")
 	}
@@ -753,7 +752,7 @@ func TestClientPublish_NotConnected(t *testing.T) {
 	mock := &mockPahoClient{connected: false}
 	c := &Client{
 		client:       mock,
-		publishTopic: "test/pub",
+		publishTopic: tcTopicPub,
 		qos:          0,
 		writeTimeout: 5 * time.Second,
 		log:          log.New(),
@@ -799,8 +798,8 @@ func TestResubscribeAck_NoHandler(t *testing.T) {
 			return &mockPahoToken{}
 		},
 	}
-	c := &Client{ackTopic: "test/ack", qos: 0, subscribeTimeout: time.Second, log: log.New()}
-	c.resubscribeAck(mock)
+	c := &Client{ackTopic: tcTopicAck, qos: 0, subscribeTimeout: time.Second, log: log.New()}
+	c.resubscribeAck(t.Context(), mock)
 	if subscribeCalled {
 		t.Error("subscribe should not be called when handler is nil")
 	}
@@ -811,16 +810,16 @@ func TestResubscribeAck_WithHandler(t *testing.T) {
 	mock := &mockPahoClient{
 		subscribeFn: func(topic string, _ byte, _ paho.MessageHandler) paho.Token {
 			subscribeCalled = true
-			if topic != "test/ack" {
+			if topic != tcTopicAck {
 				t.Errorf("subscribe topic = %q, want test/ack", topic)
 			}
 			return &mockPahoToken{}
 		},
 	}
-	c := &Client{ackTopic: "test/ack", qos: 0, subscribeTimeout: time.Second, log: log.New()}
+	c := &Client{ackTopic: tcTopicAck, qos: 0, subscribeTimeout: time.Second, log: log.New()}
 	handler := func(_ message.AckMessage) {}
 	c.ackHandler.Store(&handler)
-	c.resubscribeAck(mock)
+	c.resubscribeAck(t.Context(), mock)
 	if !subscribeCalled {
 		t.Error("subscribe should be called when handler is set")
 	}
@@ -831,13 +830,13 @@ func TestResubscribeAck_Timeout(t *testing.T) {
 
 	mock := &mockPahoClient{
 		subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
-			return &mockPahoToken{err: fmt.Errorf("timeout")}
+			return &mockPahoToken{err: errors.New("timeout")}
 		},
 	}
-	c := &Client{ackTopic: "test/ack", qos: 0, subscribeTimeout: time.Second, log: log.New()}
+	c := &Client{ackTopic: tcTopicAck, qos: 0, subscribeTimeout: time.Second, log: log.New()}
 	handler := func(_ message.AckMessage) {}
 	c.ackHandler.Store(&handler)
-	c.resubscribeAck(mock)
+	c.resubscribeAck(t.Context(), mock)
 }
 
 // --- retrySleep tests ---

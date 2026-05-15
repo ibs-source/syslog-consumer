@@ -1,24 +1,9 @@
-# Version control
 .git
-.gitignore
-
-# Docker
-.dockerignore
-Dockerfile
-
-# Build artifacts
-*.out
-*.prof
-coverage.out
-
-# Development files
-*.md
-*.json
 .env
-.golangci.yml
-Makefile
+.gitignore
+.dockerignore
+*.out
+*.md
+testdata/
+Dockerfile
 LICENSE
-
-# Test files (not needed in production image)
-*_test.go
-/testdata

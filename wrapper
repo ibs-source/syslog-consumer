@@ -26,7 +26,7 @@ declare -a RESPONSE=()
 [ -v CERTIFICATE_PATH ] || RESPONSE+=("environment: Specifies the CERTIFICATE_PATH.")
 [ -v CERTIFICATE_DEPLOYER ] || RESPONSE+=("environment: Specifies the CERTIFICATE_DEPLOYER.")
 [ -v CERTIFICATE_RENEWAL ] || RESPONSE+=("environment: Specifies the CERTIFICATE_RENEWAL.")
-[ -v CERTIFICATE_CERTIFICATE_DEPLOYER_KEY ] || RESPONSE+=("environment: Specifies the CERTIFICATE_CERTIFICATE_DEPLOYER_KEY.")
+[ -v CERTIFICATE_DEPLOYER_KEY ] || RESPONSE+=("environment: Specifies the CERTIFICATE_DEPLOYER_KEY.")
 [ -v TENANT ] || RESPONSE+=("environment: Specifies the TENANT.")
 [ -v BROKER ] || RESPONSE+=("environment: Specifies the BROKER.")
 

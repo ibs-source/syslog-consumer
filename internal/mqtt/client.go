@@ -19,7 +19,7 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
 
-// Client manages MQTT publishing and ACK subscription
+// Client wraps a single paho MQTT connection.
 type Client struct {
 	client     mqtt.Client
 	ackHandler atomic.Pointer[func(message.AckMessage)]
@@ -34,16 +34,16 @@ type Client struct {
 	disconnectTimeout time.Duration
 	connectRetryDelay time.Duration
 
-	connected atomic.Bool // updated by OnConnect/ConnectionLost handlers
+	connected atomic.Bool
 	qos       byte
 }
 
-// errNotConnected is returned by Publish when the TCP connection to the
-// broker is not established. Callers should back off and retry.
+// errNotConnected signals callers to back off and retry.
 var errNotConnected = errors.New("mqtt: broker connection not open")
 
-// NewClient creates a new MQTT client
-func NewClient(cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
+// NewClient prepares the paho options but does not establish the connection;
+// call Connect afterwards.
+func NewClient(ctx context.Context, cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
 	c := &Client{
 		publishTopic:      cfg.PublishTopic,
 		ackTopic:          cfg.AckTopic,
@@ -74,18 +74,18 @@ func NewClient(cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
 	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 		c.connected.Store(false)
 		if err != nil {
-			logger.Error("MQTT connection lost: %v", err)
+			logger.Errorf(ctx, "MQTT connection lost: %v", err)
 		}
 	})
 
 	opts.SetReconnectingHandler(func(_ mqtt.Client, _ *mqtt.ClientOptions) {
-		logger.Info("MQTT reconnecting...")
+		logger.Infof(ctx, "MQTT reconnecting...")
 	})
 
 	opts.SetOnConnectHandler(func(mc mqtt.Client) {
 		c.connected.Store(true)
-		logger.Info("MQTT connected successfully")
-		c.resubscribeAck(mc)
+		logger.Infof(ctx, "MQTT connected successfully")
+		c.resubscribeAck(ctx, mc)
 	})
 
 	if cfg.TLSEnabled {
@@ -100,8 +100,7 @@ func NewClient(cfg *config.MQTTConfig, logger *log.Logger) (*Client, error) {
 	return c, nil
 }
 
-// Connect establishes the MQTT connection, retrying with back-off until
-// the broker responds or ctx is canceled.
+// Connect retries with back-off until the broker responds or ctx is canceled.
 func (c *Client) Connect(ctx context.Context) error {
 	for attempt := 0; ; attempt++ {
 		select {
@@ -112,14 +111,14 @@ func (c *Client) Connect(ctx context.Context) error {
 
 		tok := c.client.Connect()
 		if ok := tok.WaitTimeout(c.connectTimeout); !ok {
-			c.log.Error("mqtt connect timeout, retrying (attempt %d)", attempt)
+			c.log.Errorf(ctx, "mqtt connect timeout, retrying (attempt %d)", attempt)
 			if retrySleep(ctx, c.connectRetryDelay) {
 				return ctx.Err()
 			}
 			continue
 		}
 		if err := tok.Error(); err != nil {
-			c.log.Error("mqtt connect failed, retrying (attempt %d): %v", attempt, err)
+			c.log.Errorf(ctx, "mqtt connect failed, retrying (attempt %d): %v", attempt, err)
 			if retrySleep(ctx, c.connectRetryDelay) {
 				return ctx.Err()
 			}
@@ -129,7 +128,6 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 }
 
-// retrySleep waits for d or returns true if ctx is canceled.
 func retrySleep(ctx context.Context, d time.Duration) (canceled bool) {
 	timer := time.NewTimer(d)
 	select {
@@ -141,7 +139,6 @@ func retrySleep(ctx context.Context, d time.Duration) (canceled bool) {
 	}
 }
 
-// newTLSConfig creates a TLS configuration from MQTT config
 func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -159,7 +156,7 @@ func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA cert")
+			return nil, errors.New("failed to parse CA cert")
 		}
 		tlsConfig.RootCAs = caCertPool
 	}
@@ -175,7 +172,8 @@ func newTLSConfig(cfg *config.MQTTConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// Publish sends a message to the MQTT broker. QoS 0 is fire-and-forget.
+// Publish is fire-and-forget at QoS 0; for QoS >= 1 it waits for broker ack
+// up to writeTimeout.
 func (c *Client) Publish(ctx context.Context, payload []byte) error {
 	if !c.connected.Load() {
 		return errNotConnected
@@ -183,20 +181,15 @@ func (c *Client) Publish(ctx context.Context, payload []byte) error {
 
 	token := c.client.Publish(c.publishTopic, c.qos, false, payload)
 
-	// For QoS 0, the paho library enqueues the message and there is no
-	// broker acknowledgement to wait for. Fire-and-forget.
 	if c.qos == 0 {
 		return nil
 	}
 
-	// For QoS >= 1, wait for broker acknowledgement with bounded timeout.
-	// No background goroutine needed — WaitTimeout already provides the bound.
 	if !token.WaitTimeout(c.writeTimeout) {
-		// Check if context was canceled during the wait.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return fmt.Errorf("mqtt publish timeout")
+		return errors.New("mqtt publish timeout")
 	}
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("mqtt publish failed: %w", err)
@@ -204,19 +197,16 @@ func (c *Client) Publish(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// SubscribeAck registers a callback for ACK messages.
-// After a broker reconnect the OnConnect handler calls resubscribeAck
-// to restore the subscription.
-func (c *Client) SubscribeAck(handler func(message.AckMessage)) error {
+// SubscribeAck registers handler; resubscribeAck restores it after reconnect.
+func (c *Client) SubscribeAck(ctx context.Context, handler func(message.AckMessage)) error {
 	c.ackHandler.Store(&handler)
 
-	// Subscribe to ACK topic
 	token := c.client.Subscribe(c.ackTopic, c.qos, func(_ mqtt.Client, msg mqtt.Message) {
-		c.handleAckMessage(msg.Payload())
+		c.handleAckMessage(ctx, msg.Payload())
 	})
 
 	if !token.WaitTimeout(c.subscribeTimeout) {
-		return fmt.Errorf("mqtt ack subscription timeout")
+		return errors.New("mqtt ack subscription timeout")
 	}
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("failed to subscribe to ack topic: %w", err)
@@ -225,8 +215,8 @@ func (c *Client) SubscribeAck(handler func(message.AckMessage)) error {
 	return nil
 }
 
-// ackDecompBufPool reuses decompression buffers for incoming ACK payloads.
-// parseAck copies all strings out of the buffer, so recycling is safe.
+// ackDecompBufPool reuses decompression buffers; parseAck copies all strings
+// out so recycling is safe.
 var ackDecompBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 0, 4096)
@@ -234,15 +224,13 @@ var ackDecompBufPool = sync.Pool{
 	},
 }
 
-// handleAckMessage processes incoming ACK messages
-func (c *Client) handleAckMessage(payload []byte) {
+func (c *Client) handleAckMessage(ctx context.Context, payload []byte) {
 	hp := c.ackHandler.Load()
 	if hp == nil {
 		return
 	}
 	handler := *hp
 
-	// Decompress if zstd-compressed.
 	if compress.IsCompressed(payload) {
 		bufp, ok := ackDecompBufPool.Get().(*[]byte)
 		if !ok || bufp == nil {
@@ -253,29 +241,26 @@ func (c *Client) handleAckMessage(payload []byte) {
 		if err != nil {
 			*bufp = decompressed[:0]
 			ackDecompBufPool.Put(bufp)
-			c.log.Debug("Ignoring ACK: zstd decompress failed: %v", err)
+			c.log.Debugf(ctx, "Ignoring ACK: zstd decompress failed: %v", err)
 			return
 		}
 		payload = decompressed
-		// Defer return of buffer: parseAck copies strings, so payload
-		// memory is safe to recycle after handler() returns.
 		defer func() {
 			*bufp = decompressed[:0]
 			ackDecompBufPool.Put(bufp)
 		}()
 	}
 
-	// Parse ACK message
 	ack, err := parseAck(payload)
 	if err != nil {
-		c.log.Debug("Ignoring malformed ACK message: %v (payload length: %d)", err, len(payload))
+		c.log.Debugf(ctx, "Ignoring malformed ACK message: %v (payload length: %d)", err, len(payload))
 		return
 	}
 
 	handler(ack)
 }
 
-// Close disconnects from the MQTT broker
+// Close issues a paho Disconnect using disconnectTimeout as the grace period.
 func (c *Client) Close() error {
 	if c.client != nil && c.client.IsConnected() {
 		c.client.Disconnect(uint(max(c.disconnectTimeout.Milliseconds(), 0)))
@@ -283,28 +268,27 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// IsConnected reports whether the TCP connection to the broker is open.
+// IsConnected mirrors the OnConnect/ConnectionLost handlers; cheaper than the
+// paho client's own probe.
 func (c *Client) IsConnected() bool {
 	return c.connected.Load()
 }
 
-// resubscribeAck re-subscribes to the ACK topic after a broker reconnect.
-// Called from the paho OnConnect handler. On the very first connect the
-// ackHandler is still nil, so the function returns immediately.
-func (c *Client) resubscribeAck(mc mqtt.Client) {
+// resubscribeAck is a no-op on the very first connect when ackHandler is nil.
+func (c *Client) resubscribeAck(ctx context.Context, mc mqtt.Client) {
 	if c.ackHandler.Load() == nil {
 		return
 	}
 
-	c.log.Info("Re-subscribing to ACK topic after reconnect")
+	c.log.Infof(ctx, "Re-subscribing to ACK topic after reconnect")
 	token := mc.Subscribe(c.ackTopic, c.qos, func(_ mqtt.Client, msg mqtt.Message) {
-		c.handleAckMessage(msg.Payload())
+		c.handleAckMessage(ctx, msg.Payload())
 	})
 	if !token.WaitTimeout(c.subscribeTimeout) {
-		c.log.Error("Failed to re-subscribe to ACK topic: timeout")
+		c.log.Errorf(ctx, "Failed to re-subscribe to ACK topic: timeout")
 		return
 	}
 	if err := token.Error(); err != nil {
-		c.log.Error("Failed to re-subscribe to ACK topic: %v", err)
+		c.log.Errorf(ctx, "Failed to re-subscribe to ACK topic: %v", err)
 	}
 }

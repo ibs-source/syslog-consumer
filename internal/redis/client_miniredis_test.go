@@ -47,7 +47,7 @@ func newTestClient(t *testing.T, s *miniredis.Miniredis, stream string) *Client 
 	client := &Client{
 		rdb:                rdb,
 		consumer:           "test-consumer",
-		groupName:          "test-group",
+		groupName:          testGroupName,
 		batchSize:          10,
 		blockTimeout:       50 * time.Millisecond,
 		claimIdle:          1 * time.Second,
@@ -109,7 +109,7 @@ func TestNewClient_SingleStream(t *testing.T) {
 		Address:            s.Addr(),
 		Stream:             "test-stream",
 		Consumer:           "c1",
-		GroupName:          "test-group",
+		GroupName:          testGroupName,
 		BatchSize:          10,
 		DiscoveryScanCount: 1000,
 		BlockTimeout:       50 * time.Millisecond,
@@ -120,7 +120,7 @@ func TestNewClient_SingleStream(t *testing.T) {
 		PingTimeout:        1 * time.Second,
 	}
 
-	client, err := NewClient(cfg, log.New())
+	client, err := NewClient(t.Context(), cfg, log.New())
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -144,7 +144,7 @@ func TestNewClient_MultiStream(t *testing.T) {
 		Address:            s.Addr(),
 		Stream:             "", // multi-stream
 		Consumer:           "c1",
-		GroupName:          "test-group",
+		GroupName:          testGroupName,
 		BatchSize:          10,
 		DiscoveryScanCount: 1000,
 		BlockTimeout:       50 * time.Millisecond,
@@ -155,7 +155,7 @@ func TestNewClient_MultiStream(t *testing.T) {
 		PingTimeout:        1 * time.Second,
 	}
 
-	client, err := NewClient(cfg, log.New())
+	client, err := NewClient(t.Context(), cfg, log.New())
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -173,13 +173,13 @@ func TestNewClient_ConnectionFailure(t *testing.T) {
 	cfg := &config.RedisConfig{
 		Address:            "localhost:1", // invalid port
 		Stream:             "test",
-		GroupName:          "test-group",
+		GroupName:          testGroupName,
 		DiscoveryScanCount: 1000,
 		DialTimeout:        100 * time.Millisecond,
 		PingTimeout:        100 * time.Millisecond,
 	}
 
-	_, err := NewClient(cfg, log.New())
+	_, err := NewClient(t.Context(), cfg, log.New())
 	if err == nil {
 		t.Error("expected connection error")
 	}
@@ -189,7 +189,7 @@ func TestNewClient_ConnectionFailure(t *testing.T) {
 
 func TestPing_Success(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	if err := c.Ping(t.Context()); err != nil {
 		t.Errorf("Ping() = %v; want nil", err)
@@ -198,7 +198,7 @@ func TestPing_Success(t *testing.T) {
 
 func TestPing_Failure(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 	s.Close() // kill the server
 
 	if err := c.Ping(t.Context()); err == nil {
@@ -210,7 +210,7 @@ func TestPing_Failure(t *testing.T) {
 
 func TestClose_WithRDB(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	if err := c.Close(); err != nil {
 		t.Errorf("Close() = %v; want nil", err)
@@ -221,18 +221,18 @@ func TestClose_WithRDB(t *testing.T) {
 
 func TestEnsureGroups_CreatesGroup(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	// Seed the stream — XGroupCreateMkStream should work
-	mustXAdd(t, s, "s1", "k", "v")
+	mustXAdd(t, s, testStreamS1, "k", "v")
 
-	err := c.ensureGroups(t.Context(), []string{"s1"})
+	err := c.ensureGroups(t.Context(), []string{testStreamS1})
 	if err != nil {
 		t.Fatalf("ensureGroups() error = %v", err)
 	}
 
 	// Call again — should get BUSYGROUP and not error
-	err = c.ensureGroups(t.Context(), []string{"s1"})
+	err = c.ensureGroups(t.Context(), []string{testStreamS1})
 	if err != nil {
 		t.Errorf("ensureGroups() second call error = %v; want nil (BUSYGROUP handled)", err)
 	}
@@ -273,14 +273,14 @@ func TestDiscoverStreams_EmptyDatabase(t *testing.T) {
 
 func TestReadBatch_ReadsMessages(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	// Create stream with some messages
-	mustXAdd(t, s, "s1", "source", "10.0.0.1")
-	mustXAdd(t, s, "s1", "raw", "test message")
+	mustXAdd(t, s, testStreamS1, "source", "10.0.0.1")
+	mustXAdd(t, s, testStreamS1, "raw", "test message")
 
 	// Create consumer group
-	err := c.ensureGroups(t.Context(), []string{"s1"})
+	err := c.ensureGroups(t.Context(), []string{testStreamS1})
 	if err != nil {
 		t.Fatalf("ensureGroups() error = %v", err)
 	}
@@ -293,7 +293,7 @@ func TestReadBatch_ReadsMessages(t *testing.T) {
 		t.Errorf("expected 2 messages, got %d", len(batch.Items))
 	}
 	for _, item := range batch.Items {
-		if item.Stream != "s1" {
+		if item.Stream != testStreamS1 {
 			t.Errorf("Stream = %q; want s1", item.Stream)
 		}
 	}
@@ -315,10 +315,10 @@ func TestReadBatch_EmptyStreams(t *testing.T) {
 
 func TestReadBatch_NoNewMessages(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	// Read all messages
 	mustReadBatch(t, c)
@@ -337,10 +337,10 @@ func TestReadBatch_NoNewMessages(t *testing.T) {
 
 func TestHandleReadError_NOGROUP_Recovers(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	// Seed the stream so ensureGroups succeeds inside handleReadError
-	mustXAdd(t, s, "s1", "k", "v")
+	mustXAdd(t, s, testStreamS1, "k", "v")
 
 	nogroupErr := errors.New("NOGROUP No such key 's1' or consumer group 'consumer-group'")
 	err := c.handleReadError(t.Context(), nogroupErr)
@@ -353,14 +353,14 @@ func TestHandleReadError_NOGROUP_Recovers(t *testing.T) {
 
 func TestAckAndDeleteBatch_Success(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	id := mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
+	id := mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
 	// Read to register the message in the pending list
 	mustReadBatch(t, c)
 
-	err := c.AckAndDeleteBatch(t.Context(), []string{id}, "s1")
+	err := c.AckAndDeleteBatch(t.Context(), []string{id}, testStreamS1)
 	if err != nil {
 		t.Errorf("AckAndDeleteBatch() error = %v", err)
 	}
@@ -368,7 +368,7 @@ func TestAckAndDeleteBatch_Success(t *testing.T) {
 
 func TestAckAndDeleteBatch_EmptyStream(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	err := c.AckAndDeleteBatch(t.Context(), []string{"1-0"}, "")
 	if err == nil {
@@ -380,10 +380,10 @@ func TestAckAndDeleteBatch_EmptyStream(t *testing.T) {
 
 func TestClaimIdle_NoPending(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	batch, err := c.ClaimIdle(t.Context())
 	if err != nil {
@@ -400,13 +400,13 @@ func TestRefreshStreams_DiscoversNewStreams(t *testing.T) {
 	s := startMiniredis(t)
 	c := newTestClient(t, s, "")
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
-	c.streams = []string{"s1"}
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
+	c.streams = []string{testStreamS1}
 	c.multiStreamMode = true
 
 	// Add a new stream
-	mustXAdd(t, s, "s2", "k", "v")
+	mustXAdd(t, s, testStreamS2, "k", "v")
 
 	newCount, err := c.RefreshStreams(t.Context())
 	if err != nil {
@@ -419,7 +419,7 @@ func TestRefreshStreams_DiscoversNewStreams(t *testing.T) {
 
 func TestRefreshStreams_SingleStreamModeNoop(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 	c.multiStreamMode = false
 
 	newCount, err := c.RefreshStreams(t.Context())
@@ -436,12 +436,12 @@ func TestRefreshStreams_StreamRemoved(t *testing.T) {
 	c := newTestClient(t, s, "")
 	c.multiStreamMode = true
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustXAdd(t, s, "s2", "k", "v")
-	c.streams = []string{"s1", "s2"}
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustXAdd(t, s, testStreamS2, "k", "v")
+	c.streams = []string{testStreamS1, testStreamS2}
 
 	// Remove s2 from Redis
-	s.Del("s2")
+	s.Del(testStreamS2)
 
 	_, err := c.RefreshStreams(t.Context())
 	if err != nil {
@@ -457,10 +457,10 @@ func TestRefreshStreams_StreamRemoved(t *testing.T) {
 
 func TestCleanupDeadConsumers_NoDeadConsumers(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	err := c.CleanupDeadConsumers(t.Context(), 5*time.Minute)
 	if err != nil {
@@ -472,13 +472,13 @@ func TestCleanupDeadConsumers_NoDeadConsumers(t *testing.T) {
 
 func TestGetPendingMessages_NOGROUP_Recreates(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
 	// Create stream without group → XPENDING should return NOGROUP
-	mustXAdd(t, s, "s1", "k", "v")
+	mustXAdd(t, s, testStreamS1, "k", "v")
 
 	// getPendingMessages for a non-existent group should return nil, nil (NOGROUP handled)
-	pending, err := c.getPendingMessages(t.Context(), "s1")
+	pending, err := c.getPendingMessages(t.Context(), testStreamS1)
 	if err != nil {
 		t.Errorf("getPendingMessages(NOGROUP) error = %v; want nil", err)
 	}
@@ -493,13 +493,13 @@ func TestGetPendingMessages_NOGROUP_Recreates(t *testing.T) {
 
 func TestReadBatch_SingleStreamMultipleMessages(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	mustXAdd(t, s, "s1", "source", "10.0.0.1")
-	mustXAdd(t, s, "s1", "source", "10.0.0.2")
-	mustXAdd(t, s, "s1", "source", "10.0.0.3")
+	mustXAdd(t, s, testStreamS1, "source", "10.0.0.1")
+	mustXAdd(t, s, testStreamS1, "source", "10.0.0.2")
+	mustXAdd(t, s, testStreamS1, "source", "10.0.0.3")
 
-	mustEnsureGroups(t, c, "s1")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	batch, err := c.ReadBatch(t.Context())
 	if err != nil {
@@ -514,11 +514,11 @@ func TestReadBatch_SingleStreamMultipleMessages(t *testing.T) {
 
 func TestClaimIdle_WithPendingMessages(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 	c.claimIdle = 0 // claim everything immediately
 
-	mustXAdd(t, s, "s1", "source", "10.0.0.1")
-	mustEnsureGroups(t, c, "s1")
+	mustXAdd(t, s, testStreamS1, "source", "10.0.0.1")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	// Read messages to put them into the pending list
 	mustReadBatch(t, c)
@@ -540,17 +540,17 @@ func TestClaimIdle_WithPendingMessages(t *testing.T) {
 
 func TestClaimMessages_Success(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 	c.claimIdle = 0
 
-	id := mustXAdd(t, s, "s1", "source", "10.0.0.1")
-	mustEnsureGroups(t, c, "s1")
+	id := mustXAdd(t, s, testStreamS1, "source", "10.0.0.1")
+	mustEnsureGroups(t, c, testStreamS1)
 	// Read to create pending entry
 	mustReadBatch(t, c)
 	s.FastForward(2 * time.Second)
 
 	pending := []goredis.XPendingExt{{ID: id}}
-	claimed, err := c.claimMessages(t.Context(), "s1", pending)
+	claimed, err := c.claimMessages(t.Context(), testStreamS1, pending)
 	if err != nil {
 		t.Fatalf("claimMessages() error = %v", err)
 	}
@@ -561,10 +561,10 @@ func TestClaimMessages_Success(t *testing.T) {
 
 func TestCleanupDeadConsumers_WithDeadConsumer(t *testing.T) {
 	s := startMiniredis(t)
-	c := newTestClient(t, s, "s1")
+	c := newTestClient(t, s, testStreamS1)
 
-	mustXAdd(t, s, "s1", "k", "v")
-	mustEnsureGroups(t, c, "s1")
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
 
 	// Create a second consumer by reading with a different consumer name
 	rdb2 := goredis.NewClient(&goredis.Options{Addr: s.Addr()})
@@ -577,7 +577,7 @@ func TestCleanupDeadConsumers_WithDeadConsumer(t *testing.T) {
 	if _, err := rdb2.XReadGroup(t.Context(), &goredis.XReadGroupArgs{
 		Group:    c.groupName,
 		Consumer: "dead-consumer",
-		Streams:  []string{"s1", ">"},
+		Streams:  []string{testStreamS1, ">"},
 		Count:    1,
 		Block:    0,
 	}).Result(); err != nil {

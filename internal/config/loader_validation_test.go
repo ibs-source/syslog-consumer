@@ -88,7 +88,7 @@ func getRedisValidationTests() []redisTestCase {
 	zeroScanCount.DiscoveryScanCount = 0
 
 	return []redisTestCase{
-		{name: "valid config", cfg: valid, wantError: ""},
+		{name: tcValidConfig, cfg: valid, wantError: ""},
 		{name: "empty address", cfg: emptyAddress, wantError: "redis address cannot be empty"},
 		{name: "empty consumer", cfg: emptyConsumer, wantError: "redis consumer name cannot be empty"},
 		{name: "zero batch size", cfg: zeroBatch, wantError: "redis batch size must be positive"},
@@ -108,7 +108,7 @@ func TestValidateMQTT(t *testing.T) {
 
 func getMQTTValidationTests() []mqttTestCase {
 	valid := defaultMQTTConfig()
-	valid.Broker = "tcp://localhost:1883"
+	valid.Broker = defaultMQTTBroker
 	valid.ClientID = "test-client"
 	valid.PublishTopic = "test/pub"
 	valid.AckTopic = "test/ack"
@@ -130,7 +130,7 @@ func getMQTTValidationTests() []mqttTestCase {
 	emptyAck.AckTopic = ""
 
 	return []mqttTestCase{
-		{name: "valid config", cfg: valid, wantError: ""},
+		{name: tcValidConfig, cfg: valid, wantError: ""},
 		{name: "empty broker", cfg: emptyBroker, wantError: "mqtt broker cannot be empty"},
 		{name: "empty client ID", cfg: emptyClientID, wantError: "mqtt client ID cannot be empty"},
 		{name: "zero pool size", cfg: zeroPool, wantError: "mqtt pool size must be positive"},
@@ -172,7 +172,7 @@ func getPipelineValidationTests() []pipelineTestCase {
 	zeroHealthPing.HealthPingTimeout = 0
 
 	return []pipelineTestCase{
-		{name: "valid config", cfg: valid, wantError: ""},
+		{name: tcValidConfig, cfg: valid, wantError: ""},
 		{name: "zero buffer capacity", cfg: zeroBuffer, wantError: "pipeline buffer capacity must be positive"},
 		{name: "zero publish workers", cfg: zeroWorkers, wantError: "pipeline publish workers must be positive"},
 		{name: "negative buffer capacity", cfg: negativeBuffer, wantError: "pipeline buffer capacity must be positive"},
@@ -204,7 +204,7 @@ func TestValidateCompress(t *testing.T) {
 	negativeWarmup.WarmupCount = -1
 
 	for _, tt := range []compressTestCase{
-		{name: "valid config", cfg: valid, wantError: ""},
+		{name: tcValidConfig, cfg: valid, wantError: ""},
 		{name: "zero freelist size", cfg: zeroFreelist, wantError: "compress freelist size must be positive"},
 		{name: "zero max decompress", cfg: zeroMaxDecompress, wantError: "compress max decompress bytes must be positive"},
 		{name: "warmup exceeds freelist", cfg: warmupOverFreelist,

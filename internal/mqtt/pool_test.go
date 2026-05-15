@@ -3,7 +3,6 @@ package mqtt
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -260,13 +259,13 @@ func TestPoolSubscribeAck_AllClients(t *testing.T) {
 	}
 	p := &Pool{
 		clients: []*Client{
-			{client: makeMock(), ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New()},
-			{client: makeMock(), ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New()},
-			{client: makeMock(), ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New()},
+			{client: makeMock(), ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New()},
+			{client: makeMock(), ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New()},
+			{client: makeMock(), ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New()},
 		},
 		size: 3,
 	}
-	err := p.SubscribeAck(func(_ message.AckMessage) {})
+	err := p.SubscribeAck(t.Context(), func(_ message.AckMessage) {})
 	if err != nil {
 		t.Errorf("SubscribeAck() error = %v", err)
 	}
@@ -278,16 +277,16 @@ func TestPoolSubscribeAck_AllClients(t *testing.T) {
 func TestPoolSubscribeAck_ErrorPropagation(t *testing.T) {
 	mock := &mockPahoClient{
 		subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
-			return &mockPahoToken{err: fmt.Errorf("subscribe failed")}
+			return &mockPahoToken{err: errors.New("subscribe failed")}
 		},
 	}
 	p := &Pool{
 		clients: []*Client{
-			{client: mock, ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New()},
+			{client: mock, ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New()},
 		},
 		size: 1,
 	}
-	err := p.SubscribeAck(func(_ message.AckMessage) {})
+	err := p.SubscribeAck(t.Context(), func(_ message.AckMessage) {})
 	if err == nil {
 		t.Error("expected error when subscribe fails")
 	}
@@ -301,10 +300,10 @@ func TestPoolSubscribeAck_StopsOnFirstError(t *testing.T) {
 				client: &mockPahoClient{
 					subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
 						callCount++
-						return &mockPahoToken{err: fmt.Errorf("fail")}
+						return &mockPahoToken{err: errors.New("fail")}
 					},
 				},
-				ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New(),
+				ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New(),
 			},
 			{
 				client: &mockPahoClient{
@@ -313,12 +312,12 @@ func TestPoolSubscribeAck_StopsOnFirstError(t *testing.T) {
 						return &mockPahoToken{}
 					},
 				},
-				ackTopic: "ack", qos: 0, subscribeTimeout: time.Second, log: log.New(),
+				ackTopic: tcAck, qos: 0, subscribeTimeout: time.Second, log: log.New(),
 			},
 		},
 		size: 2,
 	}
-	err := p.SubscribeAck(func(_ message.AckMessage) {})
+	err := p.SubscribeAck(t.Context(), func(_ message.AckMessage) {})
 	if err == nil {
 		t.Fatal("expected error from SubscribeAck")
 	}
@@ -361,7 +360,7 @@ func TestCloseClients_SkipsNil(t *testing.T) {
 	logger := log.New()
 	clients := make([]*Client, 3)
 	// Leave all nil — closeClients must handle gracefully.
-	closeClients(logger, clients, 3)
+	closeClients(t.Context(), logger, clients, 3)
 	for i, c := range clients {
 		if c != nil {
 			t.Errorf("client[%d] should still be nil after closeClients", i)
@@ -378,7 +377,7 @@ func TestCloseClients_ClosesConnected(t *testing.T) {
 		nil,
 		{client: m2, disconnectTimeout: 50 * time.Millisecond},
 	}
-	closeClients(logger, clients, 3)
+	closeClients(t.Context(), logger, clients, 3)
 	if !m1.disconnectCalled {
 		t.Error("expected client 0 disconnected")
 	}
@@ -395,7 +394,7 @@ func TestCloseClients_PartialCount(t *testing.T) {
 		{client: &mockPahoClient{connected: true}, disconnectTimeout: 50 * time.Millisecond},
 	}
 	// Only close first
-	closeClients(logger, clients, 1)
+	closeClients(t.Context(), logger, clients, 1)
 	if !m.disconnectCalled {
 		t.Error("expected client 0 disconnected")
 	}

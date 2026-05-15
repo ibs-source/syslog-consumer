@@ -7,14 +7,12 @@ import (
 	"time"
 )
 
-// loadLogFromEnv loads logging configuration from environment variables.
 func loadLogFromEnv(cfg *LogConfig) {
 	if v := getEnvString("LOG_LEVEL"); v != "" {
 		cfg.Level = v
 	}
 }
 
-// loadRedisFromEnv loads Redis configuration from environment variables.
 func loadRedisFromEnv(cfg *RedisConfig) {
 	loadRedisStrings(cfg)
 	loadRedisInts(cfg)
@@ -26,8 +24,7 @@ func loadRedisStrings(cfg *RedisConfig) {
 	if v := getEnvString("REDIS_ADDRESS"); v != "" {
 		cfg.Address = v
 	}
-	// Use LookupEnv so that REDIS_STREAM="" explicitly sets empty string
-	// (required for multi-stream mode). LookupEnv distinguishes "not set" from "set to empty".
+	// REDIS_STREAM="" must remain distinguishable from unset (multi-stream mode).
 	if v, ok := os.LookupEnv("REDIS_STREAM"); ok {
 		cfg.Stream = v
 	}
@@ -81,17 +78,15 @@ func loadRedisTimeouts(cfg *RedisConfig) {
 	}
 }
 
-// loadRedisPoolLifecycle loads connection-pool recycling knobs from the
-// environment. Treats an explicit "0s" as a valid request to disable
-// recycling, which LookupEnv distinguishes from "not set".
+// loadRedisPoolLifecycle treats an explicit "0s" as a request to disable
+// recycling — LookupEnv distinguishes that from "not set".
 func loadRedisPoolLifecycle(cfg *RedisConfig) {
 	loadOptionalDuration("REDIS_CONN_MAX_IDLE_TIME", &cfg.ConnMaxIdleTime)
 	loadOptionalDuration("REDIS_CONN_MAX_LIFETIME", &cfg.ConnMaxLifetime)
 }
 
-// loadOptionalDuration reads an env var whose "zero" value is semantically
-// distinct from "not set"; dst is only touched when the variable is present.
-// Invalid syntax warns and leaves dst untouched.
+// loadOptionalDuration only touches dst when the variable is present, so
+// callers can keep a non-zero default while still honoring "0s".
 func loadOptionalDuration(key string, dst *time.Duration) {
 	raw, ok := os.LookupEnv(key)
 	if !ok {
@@ -105,7 +100,6 @@ func loadOptionalDuration(key string, dst *time.Duration) {
 	*dst = v
 }
 
-// loadMQTTFromEnv loads MQTT configuration from environment variables
 func loadMQTTFromEnv(cfg *MQTTConfig) {
 	loadMQTTStrings(cfg)
 	loadMQTTInts(cfg)
@@ -198,7 +192,6 @@ func loadMQTTBools(cfg *MQTTConfig) {
 	}
 }
 
-// loadCompressFromEnv loads compression configuration from environment variables.
 func loadCompressFromEnv(cfg *CompressConfig) {
 	if v := getEnvInt("COMPRESS_FREELIST_SIZE"); v != 0 {
 		cfg.FreelistSize = v
@@ -211,7 +204,6 @@ func loadCompressFromEnv(cfg *CompressConfig) {
 	}
 }
 
-// loadPipelineFromEnv loads Pipeline configuration from environment variables.
 func loadPipelineFromEnv(cfg *PipelineConfig) {
 	loadPipelineIntsFromEnv(cfg)
 	loadPipelineDurationsFromEnv(cfg)
@@ -262,8 +254,6 @@ func loadPipelineDurationsFromEnv(cfg *PipelineConfig) {
 	}
 }
 
-// Helper functions for reading environment variables
-
 func getEnvString(key string) string {
 	return os.Getenv(key)
 }
@@ -307,8 +297,8 @@ func getEnvDuration(key string) time.Duration {
 	return duration
 }
 
-// lookupEnvBool returns (value, true) if the env var is set, allowing
-// the caller to distinguish "not set" from "explicitly set to false".
+// lookupEnvBool returns (value, true) only when the env var is set, so
+// callers can distinguish "not set" from "explicitly false".
 func lookupEnvBool(key string) (value, ok bool) {
 	rawValue, ok := os.LookupEnv(key)
 	if !ok || rawValue == "" {

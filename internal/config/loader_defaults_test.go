@@ -13,9 +13,9 @@ func TestDefaultRedisConfig(t *testing.T) {
 		want any
 		name string
 	}{
-		{cfg.Address, "localhost:6379", "Address"},
-		{cfg.Stream, "syslog-stream", "Stream"},
-		{cfg.Consumer, "consumer-1", "Consumer"},
+		{cfg.Address, defaultRedisAddress, "Address"},
+		{cfg.Stream, defaultStreamName, "Stream"},
+		{cfg.Consumer, defaultRedisConsumer, "Consumer"},
 		{cfg.BatchSize, 20000, "BatchSize"},
 		{cfg.BlockTimeout, 1 * time.Second, "BlockTimeout"},
 		{cfg.ClaimIdle, 10 * time.Second, "ClaimIdle"},
@@ -23,7 +23,7 @@ func TestDefaultRedisConfig(t *testing.T) {
 		{cfg.CleanupInterval, 1 * time.Minute, "CleanupInterval"},
 		{cfg.DialTimeout, 5 * time.Second, "DialTimeout"},
 		{cfg.ReadTimeout, 3 * time.Second, "ReadTimeout"},
-		{cfg.WriteTimeout, 3 * time.Second, "WriteTimeout"},
+		{cfg.WriteTimeout, 3 * time.Second, tcWriteTimeout},
 		{cfg.PingTimeout, 3 * time.Second, "PingTimeout"},
 		{cfg.ConnMaxIdleTime, 5 * time.Minute, "ConnMaxIdleTime"},
 		{cfg.ConnMaxLifetime, time.Duration(0), "ConnMaxLifetime"},
@@ -48,13 +48,13 @@ func TestDefaultMQTTConfig(t *testing.T) {
 		want any
 		name string
 	}{
-		{cfg.Broker, "tcp://localhost:1883", "Broker"},
-		{cfg.ClientID, "syslog-consumer", "ClientID"},
-		{cfg.PublishTopic, "syslog/remote", "PublishTopic"},
-		{cfg.AckTopic, "syslog/remote/acknowledgement", "AckTopic"},
+		{cfg.Broker, defaultMQTTBroker, "Broker"},
+		{cfg.ClientID, defaultMQTTClientID, "ClientID"},
+		{cfg.PublishTopic, defaultMQTTPublishTopic, "PublishTopic"},
+		{cfg.AckTopic, defaultMQTTAckTopic, "AckTopic"},
 		{cfg.QoS, byte(0), "QoS"},
 		{cfg.ConnectTimeout, 10 * time.Second, "ConnectTimeout"},
-		{cfg.WriteTimeout, 5 * time.Second, "WriteTimeout"},
+		{cfg.WriteTimeout, 5 * time.Second, tcWriteTimeout},
 		{cfg.PoolSize, 25, "PoolSize"},
 		{cfg.MaxReconnectInterval, 5 * time.Second, "MaxReconnectInterval"},
 		{cfg.SubscribeTimeout, 10 * time.Second, "SubscribeTimeout"},
@@ -90,7 +90,7 @@ func TestDefaultPipelineConfig(t *testing.T) {
 		{cfg.AckTimeout, 5 * time.Second, "AckTimeout"},
 		{cfg.PublishWorkers, 25, "PublishWorkers"},
 		{cfg.RefreshInterval, 1 * time.Minute, "RefreshInterval"},
-		{cfg.HealthAddr, ":9980", "HealthAddr"},
+		{cfg.HealthAddr, defaultHealthAddr, "HealthAddr"},
 	}
 
 	for _, tt := range tests {
@@ -132,16 +132,16 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Verify Redis defaults
-	if cfg.Redis.Address != "localhost:6379" {
-		t.Errorf("defaultConfig().Redis.Address = %s; want localhost:6379", cfg.Redis.Address)
+	if cfg.Redis.Address != defaultRedisAddress {
+		t.Errorf("defaultConfig().Redis.Address = %s; want %s", cfg.Redis.Address, defaultRedisAddress)
 	}
 	if cfg.Redis.BatchSize != 20000 {
 		t.Errorf("defaultConfig().Redis.BatchSize = %d; want 20000", cfg.Redis.BatchSize)
 	}
 
 	// Verify MQTT defaults
-	if cfg.MQTT.Broker != "tcp://localhost:1883" {
-		t.Errorf("defaultConfig().MQTT.Broker = %s; want tcp://localhost:1883", cfg.MQTT.Broker)
+	if cfg.MQTT.Broker != defaultMQTTBroker {
+		t.Errorf("defaultConfig().MQTT.Broker = %s; want %s", cfg.MQTT.Broker, defaultMQTTBroker)
 	}
 	if cfg.MQTT.PoolSize != 25 {
 		t.Errorf("defaultConfig().MQTT.PoolSize = %d; want 25", cfg.MQTT.PoolSize)

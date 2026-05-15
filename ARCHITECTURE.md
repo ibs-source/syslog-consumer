@@ -7,8 +7,8 @@ The Syslog Consumer is a high-performance, production-grade Redis-to-MQTT messag
 ### Key Design Principles
 
 - **Zero-Copy Processing**: Payload data is never unnecessarily copied
-- **Lock-Free Pipeline**: Go channels for thread-safe communication without mutexes
-- **Stateless Design**: No local caching; all state in Redis for crash recovery
+- **Lock-Free Pipeline**: Go channels for thread-safe communication without explicit mutexes on the hot path
+- **Durable State in Redis**: No local caching of pending-message IDs or consumer state. In-process `sync.Pool`s (`batchPool`, `claimPool`, `pendingACKPool`) and a zstd decoder freelist are allocation-reuse mechanisms, not business state.
 - **Self-Contained Messages**: Each message carries all metadata needed for processing
 - **Horizontal Scalability**: Multiple consumer instances share workload via Redis consumer groups
 
@@ -16,10 +16,10 @@ The Syslog Consumer is a high-performance, production-grade Redis-to-MQTT messag
 
 | Metric | Value |
 |--------|-------|
-| Language | Go 1.25+ |
+| Language | Go 1.25.10+ |
 | Concurrency Model | CSP (Communicating Sequential Processes) |
-| Memory Model | Zero-copy, lock-free message passing |
-| Latency | Sub-millisecond hot path (P99) |
+| Memory Model | Zero-copy on hot path; pooled allocations elsewhere |
+| Latency | Hot-path send is sub-millisecond; end-to-end P99 (Redis→MQTT→ACK) is 100–500 ms (see Performance Targets) |
 | Reliability | At-least-once delivery guarantee |
 
 ---
@@ -106,9 +106,10 @@ sequenceDiagram
     
     loop Parallel Publishing
         Buffer->>Worker: Dequeue message
-        Worker->>Worker: Build self-contained payload
-        Worker->>MQTT: Publish with ack:true preset
-        MQTT->>Remote: QoS 0 delivery
+        Worker->>Worker: Build self-contained payload (tab-prefixed line)
+        Worker->>Worker: BatchWriter accumulates, zstd-compresses batch
+        Worker->>MQTT: Publish compressed batch (QoS 0)
+        MQTT->>Remote: deliver
     end
     
     Remote->>Remote: Process message
@@ -247,8 +248,8 @@ graph TB
 - **1 Claim Loop**: Periodic recovery of stale messages
 - **1 Cleanup Loop**: Dead consumer removal
 - **1 Refresh Loop**: Stream discovery (multi-stream mode)
-- **N Publish Workers**: Configurable parallelism (default: 50)
-- **N ACK Workers**: Sharded by stream hash, with single-stream fast path
+- **N Publish Workers**: Configurable parallelism (default: 25)
+- **N ACK Workers**: Sharded by stream hash, with single-stream fast path (default: 50)
 
 ---
 
@@ -388,6 +389,34 @@ classDiagram
 
 ---
 
+### 7. Compression (`internal/compress/`)
+
+**Responsibility**: zstd batch compression for outbound MQTT payloads.
+
+The publish worker accumulates per-message lines into a `jsonfast.BatchWriter` and then calls `compress.EncodeWith(encoder, batch)` to produce the bytes actually sent to the broker. A bounded freelist (`COMPRESS_FREELIST_SIZE`, default tied to `MQTT_POOL_SIZE`) reuses zstd decoders for the ACK path. Inbound payloads are bounded by `MAX_DECOMPRESS_BYTES` to prevent decompression bombs.
+
+### 8. Health Server (`internal/health/`)
+
+**Responsibility**: HTTP health endpoint for liveness and readiness probes.
+
+`cmd/consumer/main.go` starts `health.Server` on `PIPELINE_HEALTH_ADDR` (default `:9980`). Probes ping Redis and MQTT and report aggregate readiness; `expvar` is mounted at `/debug/vars` by the metrics package.
+
+### 9. Metrics (`internal/metrics/`)
+
+**Responsibility**: in-process counters published via `expvar` on `/debug/vars`.
+
+Counters cover fetch/publish/ack volumes, claim/cleanup activity, MQTT pool state, and zstd decode failures. There is **no** Prometheus exposition format — scrapers should consume the `expvar` JSON.
+
+### 10. Structured Logger (`internal/log/`)
+
+`slog`-based logger wired by `main.go`. Levels and format are environment-driven; all package logs flow through the same handler.
+
+### 11. CLI flag layer (`internal/config/loader_flags.go`)
+
+While the project privileges environment-variable configuration, every documented env var is also exposed as a CLI flag (same name, lowercase, hyphen-separated). Flags override environment values when both are set. Runtime invariants (`ReadTimeout > BlockTimeout`, claim/cleanup intervals, etc.) are enforced by `loader_runtime_validation.go` at startup; misconfiguration causes a fail-fast exit before any goroutine is started.
+
+---
+
 ## Data Flow
 
 ### Message Processing Pipeline
@@ -428,15 +457,20 @@ graph TB
 
 ### Payload Structure
 
-**Published Message** (Tab-separated NDJSON line: `id\tstream\t{flat event JSON}`):
+**Per-message line** (the publish worker produces one of these per Redis entry; see `buildPayload` in `internal/hotpath/hotpath.go`):
+
 ```
-1699459800000-0	syslog-stream	{"timestamp":"2025-11-08T16:30:00Z","severity":"Info","facility":"syslog","raw":"-","sd_key":"val"}
+1699459800000-0	syslog-stream	{"severity":"Info","raw":"-","sd_key":"val"}
 ```
 
 - `id` and `stream` are tab-prefixed for zero-alloc ACK routing by the receiver.
-- The JSON body is a flat object: `structured_data` fields are flattened with `sd_` prefix, severity is mapped to a human-readable name, and `raw` is the original syslog line (`"-"` when empty).
+- The JSON body is a flat object: `structured_data` fields are flattened with `sd_` prefix, severity is mapped to a human-readable name (`severityName`), and `raw` is the original syslog line (`"-"` when empty). Any additional keys present in the upstream `Object` (e.g. `timestamp`, `facility`) are passed through verbatim — they are **not** synthesized by `buildPayload`.
 
-**ACK Message** (Response from remote system):
+**Wire format** (what is actually sent to the MQTT broker):
+
+The publish worker appends N per-message lines into a `jsonfast.BatchWriter`, then `internal/compress.EncodeWith` produces a single **zstd-compressed** payload that is published with QoS 0. The remote receiver decompresses and splits by `\n` to recover each `id\tstream\t{json}` line.
+
+**ACK Message** (response from remote system):
 ```json
 {
   "ids": ["1699459800000-0"],
@@ -528,11 +562,9 @@ graph TB
 
 ### Runtime Tuning
 
-Recommended production settings:
-
-- `GOEXPERIMENT=greenteagc` at build time
-- `GOGC=200` at runtime for lower GC frequency
-- optionally `GOMEMLIMIT=2GiB` (or sized to the host/container memory budget)
+- **`GOEXPERIMENT=greenteagc`** — build-time only (baked into the binary by the Dockerfile builder). Not a runtime env var.
+- **`GOGC=200`** — applied automatically by `cmd/consumer/main.go` if the env var is unset, otherwise honored as provided.
+- **`GOMEMLIMIT=2GiB`** — applied automatically by `cmd/consumer/main.go` if unset; override at deployment based on container memory budget (target ~80%).
 
 ### Latency Breakdown
 
@@ -667,7 +699,7 @@ sequenceDiagram
 |----------|-----------|-----------|
 | Consumer Crash | At-least-once | Redis pending entries + claim |
 | Network Failure | At-least-once | Message stays pending until ACK |
-| MQTT Publish Fail | At-least-once | No in-process retry; claim loop recovers |
+| MQTT Publish Fail | At-least-once | `mqtt.Pool.Publish` tries every pool client once; if all fail the message stays pending and the claim loop recovers it |
 | Duplicate ACK | Idempotent | XACK/XDEL are idempotent operations |
 | Remote Processing | Application-level | ACK true/false determines retry |
 
@@ -822,9 +854,10 @@ See [README.md](README.md) for complete environment variable reference.
 | Parameter | Low Load | Default | High Load | Notes |
 |-----------|----------|---------|-----------|-------|
 | REDIS_BATCH_SIZE | 500 | 20000 | 50000 | Larger batches = fewer round trips |
-| MQTT_POOL_SIZE | 5 | 20 | 100 | Match publish worker count |
-| PIPELINE_PUBLISH_WORKERS | 10 | 50 | 100 | CPU-bound scaling |
-| PIPELINE_BUFFER_CAPACITY | 5000 | 10000 | 50000 | Memory vs. backpressure |
+| MQTT_POOL_SIZE | 5 | 25 | 100 | Match publish worker count |
+| PIPELINE_PUBLISH_WORKERS | 10 | 25 | 100 | CPU-bound scaling |
+| PIPELINE_MESSAGE_QUEUE_CAPACITY | 100 | 500 | 5000 | Fetch→publish channel depth (memory vs. backpressure) |
+| PIPELINE_BUFFER_CAPACITY | 5000 | 10000 | 50000 | Per-shard ACK channel depth |
 
 ### Troubleshooting
 

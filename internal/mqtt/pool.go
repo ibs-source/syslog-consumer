@@ -14,7 +14,8 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
 
-// Pool manages multiple MQTT client connections for high throughput
+// Pool fans out publishes across several paho connections to raise broker
+// throughput beyond what one TCP connection can sustain.
 type Pool struct {
 	log     *log.Logger
 	clients []*Client
@@ -22,27 +23,25 @@ type Pool struct {
 	size    uint
 }
 
-func closeClients(logger *log.Logger, clients []*Client, count int) {
+func closeClients(ctx context.Context, logger *log.Logger, clients []*Client, count int) {
 	safe := clients[:min(count, len(clients))]
 	for j, c := range safe {
 		if c == nil {
 			continue
 		}
 		if err := c.Close(); err != nil {
-			logger.Warn("Error closing client %d during cleanup: %v", j, err)
+			logger.Warnf(ctx, "Error closing client %d during cleanup: %v", j, err)
 		}
 	}
 }
 
-// NewPool creates a new MQTT connection pool. It retries each connection
-// until the broker responds or ctx is canceled.
+// NewPool retries each connection until the broker responds or ctx is canceled.
 func NewPool(ctx context.Context, cfg *config.MQTTConfig, poolSize int, logger *log.Logger) (*Pool, error) {
 	if poolSize < 1 {
 		return nil, errors.New("mqtt: pool size must be positive")
 	}
 
-	// Generate a unique base Client ID for this process instance
-	// This prevents collisions when multiple consumer instances run with the same config
+	// Per-process suffix prevents Client ID collisions across instances.
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
@@ -57,9 +56,9 @@ func NewPool(ctx context.Context, cfg *config.MQTTConfig, poolSize int, logger *
 		clientCfg := *cfg
 		clientCfg.ClientID = fmt.Sprintf("%s-%d", baseClientID, i)
 
-		client, err := NewClient(&clientCfg, logger)
+		client, err := NewClient(ctx, &clientCfg, logger)
 		if err != nil {
-			closeClients(logger, clients, poolSize)
+			closeClients(ctx, logger, clients, poolSize)
 			return nil, fmt.Errorf("failed to create client %d: %w", i, err)
 		}
 		clients[i] = client
@@ -73,7 +72,7 @@ func NewPool(ctx context.Context, cfg *config.MQTTConfig, poolSize int, logger *
 	}
 
 	if err := g.Wait(); err != nil {
-		closeClients(logger, clients, poolSize)
+		closeClients(ctx, logger, clients, poolSize)
 		return nil, err
 	}
 
@@ -84,8 +83,7 @@ func NewPool(ctx context.Context, cfg *config.MQTTConfig, poolSize int, logger *
 	}, nil
 }
 
-// Publish publishes a message using round-robin across connections,
-// skipping disconnected clients. Tries all pool members before failing.
+// Publish skips disconnected clients and tries all pool members before failing.
 func (p *Pool) Publish(ctx context.Context, payload message.Payload) error {
 	start := p.next.Add(1) - 1
 	sz := uint64(p.size)
@@ -99,9 +97,8 @@ func (p *Pool) Publish(ctx context.Context, payload message.Payload) error {
 	return errNotConnected
 }
 
-// PublishFrom publishes using a caller-provided starting index for
-// round-robin distribution. This avoids the shared atomic counter
-// contention when many publish workers call concurrently.
+// PublishFrom takes the round-robin hint from the caller to avoid contention
+// on the shared atomic counter.
 func (p *Pool) PublishFrom(ctx context.Context, payload message.Payload, hint uint64) error {
 	sz := uint64(p.size)
 	for i := range p.size {
@@ -114,21 +111,18 @@ func (p *Pool) PublishFrom(ctx context.Context, payload message.Payload, hint ui
 	return errNotConnected
 }
 
-// SubscribeAck subscribes to the ACK topic on ALL pool connections.
-// The broker may deliver ACK responses on any connection, so we
-// subscribe on every client to ensure none are missed.
-// The handler must be idempotent — duplicate ACKs are harmless
-// because the Redis ACK+DEL is itself idempotent.
-func (p *Pool) SubscribeAck(handler func(message.AckMessage)) error {
+// SubscribeAck subscribes on every client because the broker may deliver
+// ACK responses on any connection. The handler must be idempotent.
+func (p *Pool) SubscribeAck(ctx context.Context, handler func(message.AckMessage)) error {
 	for i, c := range p.clients {
-		if err := c.SubscribeAck(handler); err != nil {
+		if err := c.SubscribeAck(ctx, handler); err != nil {
 			return fmt.Errorf("failed to subscribe ACK on client %d: %w", i, err)
 		}
 	}
 	return nil
 }
 
-// Close closes all connections in the pool
+// Close disconnects every pool member; returned errors are joined.
 func (p *Pool) Close() error {
 	var errs []error
 	for i, client := range p.clients {

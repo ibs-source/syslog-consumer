@@ -18,6 +18,13 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
 
+const (
+	testMsgID1     = "1-0"
+	testStreamS1   = "s1"
+	testStreamSimp = "s"
+	testObjectKV   = `{"k":"v"}`
+)
+
 // testConfig returns a minimal valid configuration for unit tests.
 func testConfig() *config.Config {
 	return &config.Config{
@@ -96,8 +103,8 @@ func TestNew_ValidDependencies(t *testing.T) {
 	if hp.ackChans == nil {
 		t.Error("ackChans not initialized")
 	}
-	if hp.lifecycleCtx == nil {
-		t.Error("lifecycleCtx not initialized")
+	if hp.done == nil {
+		t.Error("done channel not initialized")
 	}
 	if hp.claimTicker == nil {
 		t.Error("claimTicker not initialized")
@@ -147,7 +154,7 @@ func TestRun_GracefulShutdown(t *testing.T) {
 func TestRun_SubscribeAckError(t *testing.T) {
 	subErr := errors.New("subscribe failed")
 	pub := &mockPublisher{
-		subscribeAckFn: func(_ func(message.AckMessage)) error {
+		subscribeAckFn: func(_ context.Context, _ func(message.AckMessage)) error {
 			return subErr
 		},
 	}
@@ -181,7 +188,7 @@ func TestRun_FetchAndPublish(t *testing.T) {
 			close(called)
 			return message.Batch{
 				Items: []message.Redis{
-					{ID: "1-0", Stream: "s1", Object: `{"k":"v"}`},
+					{ID: testMsgID1, Stream: testStreamS1, Object: testObjectKV},
 				},
 			}, nil
 		},
@@ -255,14 +262,16 @@ func TestHandleAck_Bounded(t *testing.T) {
 	defer closeHotPath(t, hp)
 
 	// Start ACK workers (normally started by Run)
+	workerCtx := t.Context()
 	for i := range hp.ackWorkers {
 		ch := hp.ackChans[i]
-		hp.ackWg.Go(func() { hp.ackWorker(ch) })
+		hp.ackWg.Go(func() { hp.ackWorker(workerCtx, ch) })
 	}
 
-	// Fire 10 ACKs rapidly
+	// Fire 10 ACKs rapidly via the handler
+	handler := hp.makeAckHandler(workerCtx)
 	for range 10 {
-		hp.handleAck(message.AckMessage{IDs: []string{"id"}, Stream: "s", Ack: true})
+		handler(message.AckMessage{IDs: []string{"id"}, Stream: testStreamSimp, Ack: true})
 	}
 
 	// Close all ack channels to trigger final flush and let workers drain
@@ -296,7 +305,7 @@ func TestFlushACKs_Success(t *testing.T) {
 	}
 	defer closeHotPath(t, hp)
 
-	hp.flushACKs("stream-A", &pendingACK{ackIDs: []string{"123-0"}})
+	hp.flushACKs(t.Context(), "stream-A", &pendingACK{ackIDs: []string{"123-0"}})
 
 	if len(calledIDs) != 1 || calledIDs[0] != "123-0" || calledStream != "stream-A" {
 		t.Errorf("AckAndDeleteBatch called with ids=%v stream=%s; want [123-0], stream-A", calledIDs, calledStream)
@@ -318,7 +327,7 @@ func TestFlushACKs_NackOnly(t *testing.T) {
 	}
 	defer closeHotPath(t, hp)
 
-	hp.flushACKs("s", &pendingACK{nackCount: 1})
+	hp.flushACKs(t.Context(), testStreamSimp, &pendingACK{nackCount: 1})
 
 	if called {
 		t.Error("AckAndDeleteBatch should NOT be called when only NACKs")
@@ -338,12 +347,13 @@ func TestFlushACKs_LifecycleContextCancelled(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	// Cancel lifecycle immediately
-	hp.lifecycleCancel()
+	// Build a parent context that is already canceled so flushACKs returns quickly.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
 
 	done := make(chan struct{})
 	go func() {
-		hp.flushACKs("s", &pendingACK{ackIDs: []string{"x"}})
+		hp.flushACKs(ctx, testStreamSimp, &pendingACK{ackIDs: []string{"x"}})
 		close(done)
 	}()
 
@@ -377,7 +387,7 @@ var buildPayloadTests = []struct {
 	{
 		name: "syslog with structured_data flattened",
 		msg: message.Redis{
-			ID:     "1-0",
+			ID:     testMsgID1,
 			Stream: "syslog-stream",
 			Object: `{"hostname":"FW01","severity":3,"structured_data":{"KV@123":{"action":"pass","srcip":"1.2.3.4"}}}`,
 			Raw:    "<190>1 test raw",
@@ -388,7 +398,7 @@ var buildPayloadTests = []struct {
 		name: "syslog without structured_data",
 		msg: message.Redis{
 			ID:     "2-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 			Object: `{"hostname":"router1","severity":6,"message":"hello"}`,
 			Raw:    "raw line",
 		},
@@ -398,7 +408,7 @@ var buildPayloadTests = []struct {
 		name: "empty fields",
 		msg: message.Redis{
 			ID:     "3-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 		},
 		wantJSON: `{"raw":"-"}`,
 	},
@@ -406,7 +416,7 @@ var buildPayloadTests = []struct {
 		name: "empty object and raw",
 		msg: message.Redis{
 			ID:     "4-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 		},
 		wantJSON: `{"raw":"-"}`,
 	},
@@ -414,7 +424,7 @@ var buildPayloadTests = []struct {
 		name: "empty raw replaced with dash",
 		msg: message.Redis{
 			ID:     "5-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 			Object: `{"hostname":"h1","severity":7}`,
 		},
 		wantJSON: `{"hostname":"h1","severity":"DEBUG","raw":"-"}`,
@@ -423,7 +433,7 @@ var buildPayloadTests = []struct {
 		name: "non-JSON object ignored",
 		msg: message.Redis{
 			ID:     "6-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 			Object: "not json",
 		},
 		wantJSON: `{"raw":"-"}`,
@@ -432,7 +442,7 @@ var buildPayloadTests = []struct {
 		name: "deep nested structured_data",
 		msg: message.Redis{
 			ID:     "7-0",
-			Stream: "s",
+			Stream: testStreamSimp,
 			Object: `{"severity":0,"structured_data":{"L1":{"L2":{"key":"deep"}}}}`,
 			Raw:    "r",
 		},
@@ -488,8 +498,8 @@ func TestBuildPayload_FieldOrder(t *testing.T) {
 	defer closeHotPath(t, hp)
 
 	msg := message.Redis{
-		ID:     "1-0",
-		Stream: "s",
+		ID:     testMsgID1,
+		Stream: testStreamSimp,
 		Object: `{"hostname":"fw01","severity":6,"facility":23}`,
 		Raw:    "test",
 	}
@@ -512,11 +522,11 @@ func TestBuildPayload_StreamInTabPrefix(t *testing.T) {
 
 	// Stream name with special chars passes through literally in tab prefix.
 	builder := jsonfast.New(512)
-	msg := message.Redis{ID: "1-0", Stream: `path\to"stream`}
+	msg := message.Redis{ID: testMsgID1, Stream: `path\to"stream`}
 	result := hp.buildPayload(builder, &msg)
 	gotID, gotStream, _ := parseLine(t, result)
-	if gotID != "1-0" {
-		t.Errorf("id = %q, want 1-0", gotID)
+	if gotID != testMsgID1 {
+		t.Errorf("id = %q, want %s", gotID, testMsgID1)
 	}
 	if gotStream != `path\to"stream` {
 		t.Errorf("stream = %q, want path\\to\"stream", gotStream)
@@ -699,14 +709,14 @@ func TestPublishLoop_EmptyBody(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Put an empty body message (both Object and Raw are empty)
-	hp.msgChan <- message.Batch{Items: []message.Redis{{ID: "1", Stream: "s"}}}
+	hp.msgChan <- message.Batch{Items: []message.Redis{{ID: "1", Stream: testStreamSimp}}}
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
 	}()
 
-	checkLoopExit(t, hp.makePublishLoop(0)(ctx))
+	checkLoopExit(t, hp.makePublishLoop(t.Context(), 0)(ctx))
 
 	if publishCalled {
 		t.Error("publish should not be called for empty body message")
@@ -731,14 +741,14 @@ func TestPublishLoop_PublishError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Put a valid message
-	hp.msgChan <- message.Batch{Items: []message.Redis{{ID: "1", Stream: "s", Object: `{"k":"v"}`}}}
+	hp.msgChan <- message.Batch{Items: []message.Redis{{ID: "1", Stream: testStreamSimp, Object: testObjectKV}}}
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
 		cancel()
 	}()
 
-	checkLoopExit(t, hp.makePublishLoop(0)(ctx))
+	checkLoopExit(t, hp.makePublishLoop(t.Context(), 0)(ctx))
 
 	if publishCount.Load() < 1 {
 		t.Error("publish should have been called at least once")
@@ -754,7 +764,7 @@ func TestClaimLoop_WithItems(t *testing.T) {
 			if callCount.Add(1) == 1 {
 				return message.Batch{
 					Items: []message.Redis{
-						{ID: "claimed-1", Stream: "s"},
+						{ID: "claimed-1", Stream: testStreamSimp},
 					},
 				}, nil
 			}
@@ -1014,11 +1024,19 @@ func TestHandleAck_DropDuringShutdown(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	// Cancel lifecycle so handleAck drops the ACK via lifecycleCtx.Done()
-	hp.lifecycleCancel()
+	// Close() to signal shutdown: the handler should drop the ACK because
+	// its parent lifecycle context will be canceled.
+	if err := hp.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Build a handler bound to a canceled context to mimic the post-Close state.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	handler := hp.makeAckHandler(ctx)
 
 	// This should drop the ACK, not process it
-	hp.handleAck(message.AckMessage{IDs: []string{"dropped"}, Stream: "s", Ack: true})
+	handler(message.AckMessage{IDs: []string{"dropped"}, Stream: testStreamSimp, Ack: true})
 
 	// Brief wait to ensure no goroutine was spawned
 	time.Sleep(50 * time.Millisecond)
@@ -1040,5 +1058,5 @@ func TestFlushACKs_AckAndDeleteError(t *testing.T) {
 	defer closeHotPath(t, hp)
 
 	// Should not panic — just logs error
-	hp.flushACKs("s", &pendingACK{ackIDs: []string{"x"}})
+	hp.flushACKs(t.Context(), testStreamSimp, &pendingACK{ackIDs: []string{"x"}})
 }

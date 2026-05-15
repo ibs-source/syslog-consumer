@@ -14,7 +14,7 @@ func TestApplyRedisFlags(t *testing.T) {
 
 	// Set command line args
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-redis-address=flag-redis:6379",
 		"-redis-stream=flag-stream",
 		"-redis-consumer=flag-consumer",
@@ -58,7 +58,7 @@ func TestApplyMQTTFlags(t *testing.T) {
 
 	// Set command line args
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-mqtt-broker=tcp://flag-mqtt:1883",
 		"-mqtt-client-id=flag-client",
 		"-mqtt-qos=2",
@@ -102,7 +102,7 @@ func TestApplyPipelineFlags(t *testing.T) {
 
 	// Set command line args
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-pipeline-buffer-capacity=2000",
 		"-pipeline-shutdown-timeout=45s",
 		"-pipeline-publish-workers=15",
@@ -138,7 +138,7 @@ func TestIsFlagSet(t *testing.T) {
 
 	// Set command line args with explicit flag
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-mqtt-tls-enabled=true",
 	}
 
@@ -164,7 +164,7 @@ func TestApplyAllRedisFlags(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-redis-claim-idle=1m",
 		"-redis-consumer-idle-timeout=10m",
 		"-redis-cleanup-interval=2m",
@@ -219,7 +219,7 @@ func TestApplyRedisFlags_ConnLifecycleNotSetKeepsDefault(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 
-	os.Args = []string{"test"} // no flags
+	os.Args = []string{tcTest} // no flags
 
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	resetFlags()
@@ -244,7 +244,7 @@ func TestApplyRedisFlags_ConnLifecycleExplicitZeroDisables(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-redis-conn-max-idle-time=0s",
 		"-redis-conn-max-lifetime=0s",
 	}
@@ -270,7 +270,7 @@ func TestApplyAllMQTTFlags(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-mqtt-publish-topic=custom/pub",
 		"-mqtt-ack-topic=custom/ack",
 		"-mqtt-connect-timeout=15s",
@@ -351,7 +351,7 @@ func TestApplyAllPipelineFlags(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-pipeline-error-backoff=200ms",
 		"-pipeline-ack-timeout=10s",
 		"-pipeline-refresh-interval=5m",
@@ -397,7 +397,7 @@ func TestApplyAllCompressFlags(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-compress-freelist-size=64",
 		"-max-decompress-bytes=134217728",
 		"-compress-warmup-count=8",

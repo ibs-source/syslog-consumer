@@ -9,31 +9,31 @@ func TestSeverityName(t *testing.T) {
 		raw  []byte
 	}{
 		// Fast path: single-digit ASCII
-		{raw: []byte("0"), name: "0 EMERGENCY", want: "EMERGENCY"},
-		{raw: []byte("1"), name: "1 ALERT", want: "ALERT"},
-		{raw: []byte("2"), name: "2 CRITICAL", want: "CRITICAL"},
-		{raw: []byte("3"), name: "3 ERROR", want: "ERROR"},
-		{raw: []byte("4"), name: "4 WARNING", want: "WARNING"},
-		{raw: []byte("5"), name: "5 NOTICE", want: "NOTICE"},
-		{raw: []byte("6"), name: "6 INFO", want: "INFO"},
-		{raw: []byte("7"), name: "7 DEBUG", want: "DEBUG"},
+		{raw: []byte("0"), name: "0 EMERGENCY", want: severityEmergency},
+		{raw: []byte("1"), name: "1 ALERT", want: severityAlert},
+		{raw: []byte("2"), name: "2 CRITICAL", want: severityCritical},
+		{raw: []byte("3"), name: "3 ERROR", want: severityError},
+		{raw: []byte("4"), name: "4 WARNING", want: severityWarning},
+		{raw: []byte("5"), name: "5 NOTICE", want: severityNotice},
+		{raw: []byte("6"), name: "6 INFO", want: severityInfo},
+		{raw: []byte("7"), name: "7 DEBUG", want: severityDebug},
 
 		// Slow path: multi-byte numeric strings
-		{raw: []byte("00"), name: "multi-byte 0", want: "EMERGENCY"},
-		{raw: []byte("07"), name: "multi-byte 7", want: "DEBUG"},
+		{raw: []byte("00"), name: "multi-byte 0", want: severityEmergency},
+		{raw: []byte("07"), name: "multi-byte 7", want: severityDebug},
 
 		// Out-of-range → default INFO
-		{raw: []byte("8"), name: "8 out of range", want: "INFO"},
-		{raw: []byte("9"), name: "9 out of range", want: "INFO"},
-		{raw: []byte("-1"), name: "negative", want: "INFO"},
-		{raw: []byte("99"), name: "large number", want: "INFO"},
+		{raw: []byte("8"), name: "8 out of range", want: severityInfo},
+		{raw: []byte("9"), name: "9 out of range", want: severityInfo},
+		{raw: []byte("-1"), name: "negative", want: severityInfo},
+		{raw: []byte("99"), name: "large number", want: severityInfo},
 
 		// Invalid input → default INFO
-		{raw: []byte(""), name: "empty", want: "INFO"},
-		{raw: []byte("abc"), name: "non-numeric", want: "INFO"},
-		{raw: []byte("3.5"), name: "float", want: "INFO"},
-		{raw: []byte(" "), name: "space", want: "INFO"},
-		{raw: []byte("\x00"), name: "null bytes", want: "INFO"},
+		{raw: []byte(""), name: "empty", want: severityInfo},
+		{raw: []byte("abc"), name: "non-numeric", want: severityInfo},
+		{raw: []byte("3.5"), name: "float", want: severityInfo},
+		{raw: []byte(" "), name: "space", want: severityInfo},
+		{raw: []byte("\x00"), name: "null bytes", want: severityInfo},
 	}
 
 	for _, tt := range tests {
@@ -48,9 +48,15 @@ func TestSeverityName(t *testing.T) {
 
 func TestSeverityNames_Table(t *testing.T) {
 	// Verify the severityNames array is correctly defined
-	expected := [8]string{
-		"EMERGENCY", "ALERT", "CRITICAL", "ERROR",
-		"WARNING", "NOTICE", "INFO", "DEBUG",
+	expected := [sevCount]string{
+		sevEmergency: severityEmergency,
+		sevAlert:     severityAlert,
+		sevCritical:  severityCritical,
+		sevError:     severityError,
+		sevWarning:   severityWarning,
+		sevNotice:    severityNotice,
+		sevInfo:      severityInfo,
+		sevDebug:     severityDebug,
 	}
 	if severityNames != expected {
 		t.Errorf("severityNames = %v; want %v", severityNames, expected)

@@ -1,9 +1,10 @@
-// Package config provides configuration loading and validation from environment variables and command line flags.
+// Package config provides configuration loading and validation from
+// environment variables and command line flags.
 package config
 
 import "time"
 
-// Config holds the complete configuration
+// Config aggregates every subsystem's configuration.
 type Config struct {
 	Log      LogConfig
 	MQTT     MQTTConfig
@@ -12,19 +13,19 @@ type Config struct {
 	Compress CompressConfig
 }
 
-// CompressConfig holds compression/decompression tuning parameters.
+// CompressConfig tunes the zstd encoder/decoder freelists.
 type CompressConfig struct {
-	FreelistSize       int // channel buffer capacity for decoder reuse
-	MaxDecompressBytes int // hard cap for a single decompressed payload
-	WarmupCount        int // decoders pre-created at init to avoid cold-start latency
+	FreelistSize       int
+	MaxDecompressBytes int
+	WarmupCount        int
 }
 
-// LogConfig holds application logging configuration.
+// LogConfig is a placeholder for future logging knobs; currently only Level.
 type LogConfig struct {
 	Level string
 }
 
-// RedisConfig holds Redis stream consumer configuration
+// RedisConfig drives the Redis stream consumer and its connection pool.
 type RedisConfig struct {
 	Address             string
 	Stream              string
@@ -40,20 +41,18 @@ type RedisConfig struct {
 	ReadTimeout         time.Duration
 	WriteTimeout        time.Duration
 	PingTimeout         time.Duration
-	// ConnMaxIdleTime forces recycling of pooled connections idle for longer
-	// than this duration. Protects against silently-dead TCP connections
-	// (e.g. NAT/conntrack eviction) that a client would otherwise reuse and
-	// then fail at health-check time. Zero disables proactive recycling.
+	// ConnMaxIdleTime recycles pooled connections that have been idle longer
+	// than this. Protects against silently-dead TCP connections (NAT/conntrack
+	// eviction) the client would otherwise reuse and fail on. Zero disables.
 	ConnMaxIdleTime time.Duration
-	// ConnMaxLifetime rotates every connection after this age regardless of
-	// activity. Caps the blast radius of any single stale connection.
-	// Zero disables forced rotation.
+	// ConnMaxLifetime rotates every connection past this age regardless of
+	// activity. Zero disables.
 	ConnMaxLifetime time.Duration
 	PoolSize        int
 	MinIdleConns    int
 }
 
-// MQTTConfig holds MQTT client configuration
+// MQTTConfig captures broker connection, TLS, and pool settings.
 type MQTTConfig struct {
 	Broker               string
 	ClientID             string
@@ -67,31 +66,34 @@ type MQTTConfig struct {
 	MaxReconnectInterval time.Duration
 	SubscribeTimeout     time.Duration
 	DisconnectTimeout    time.Duration
-	KeepAlive            time.Duration // Interval between PINGREQ packets
-	PingTimeout          time.Duration // Max wait for PINGRESP before reconnect
-	ConnectRetryDelay    time.Duration // Pause between connection retry attempts
-	PoolSize             int           // Number of connections in the pool
-	MessageChannelDepth  uint          // Internal paho outgoing message queue depth
-	MaxResumePubInFlight int           // Unacknowledged publishes resumed after reconnect
+	KeepAlive            time.Duration
+	PingTimeout          time.Duration
+	ConnectRetryDelay    time.Duration
+	PoolSize             int
+	MessageChannelDepth  uint
+	MaxResumePubInFlight int
 	QoS                  byte
 	TLSEnabled           bool
 	InsecureSkip         bool
-	UseCertCNPrefix      bool // If true, prefix topics with cert CN for ACL constraints
+	// UseCertCNPrefix prepends the client cert CN to publish and ACK topics
+	// to satisfy broker ACL constraints.
+	UseCertCNPrefix bool
 }
 
-// PipelineConfig holds pipeline orchestration settings
+// PipelineConfig sizes the worker pools, queues, and timeouts that govern
+// the fetch → publish → ACK flow and the health endpoint.
 type PipelineConfig struct {
-	HealthAddr              string        // Address for health/metrics HTTP server (e.g. ":9980")
-	HealthPingTimeout       time.Duration // Timeout for Redis ping in health check
-	HealthReadHeaderTimeout time.Duration // HTTP ReadHeaderTimeout for the health server
+	HealthAddr              string
+	HealthPingTimeout       time.Duration
+	HealthReadHeaderTimeout time.Duration
 	ShutdownTimeout         time.Duration
-	ErrorBackoff            time.Duration // Backoff on errors
-	AckTimeout              time.Duration // Timeout for ACK operations
-	RefreshInterval         time.Duration // Interval for multi-stream discovery refresh
-	AckFlushInterval        time.Duration // Timer interval for flushing batched ACKs
-	BufferCapacity          int           // ACK queue depth
-	MessageQueueCapacity    int           // Redis batch queue depth between fetch and publish workers
-	PublishWorkers          int           // Number of concurrent publish workers
-	AckWorkers              int           // Number of concurrent ACK workers
-	AckBatchSize            int           // Threshold for immediate flush of accumulated ACKs
+	ErrorBackoff            time.Duration
+	AckTimeout              time.Duration
+	RefreshInterval         time.Duration
+	AckFlushInterval        time.Duration
+	BufferCapacity          int
+	MessageQueueCapacity    int
+	PublishWorkers          int
+	AckWorkers              int
+	AckBatchSize            int
 }

@@ -56,8 +56,8 @@ func generateTestCert(t *testing.T, cn string) string {
 func TestApplyRuntimeValidation_WithoutCertCN(t *testing.T) {
 	cfg := &Config{
 		MQTT: MQTTConfig{
-			PublishTopic:    "original/publish",
-			AckTopic:        "original/ack",
+			PublishTopic:    tcOriginalPublish,
+			AckTopic:        tcOriginalAck,
 			UseCertCNPrefix: false,
 		},
 	}
@@ -67,10 +67,10 @@ func TestApplyRuntimeValidation_WithoutCertCN(t *testing.T) {
 	}
 
 	// Topics should remain unchanged
-	if cfg.MQTT.PublishTopic != "original/publish" {
+	if cfg.MQTT.PublishTopic != tcOriginalPublish {
 		t.Errorf("PublishTopic = %s; want original/publish", cfg.MQTT.PublishTopic)
 	}
-	if cfg.MQTT.AckTopic != "original/ack" {
+	if cfg.MQTT.AckTopic != tcOriginalAck {
 		t.Errorf("AckTopic = %s; want original/ack", cfg.MQTT.AckTopic)
 	}
 }
@@ -102,8 +102,8 @@ func TestApplyRuntimeValidation_WithCertCN(t *testing.T) {
 func TestApplyRuntimeValidation_MissingCert(t *testing.T) {
 	cfg := &Config{
 		MQTT: MQTTConfig{
-			PublishTopic:    "original/publish",
-			AckTopic:        "original/ack",
+			PublishTopic:    tcOriginalPublish,
+			AckTopic:        tcOriginalAck,
 			UseCertCNPrefix: true,
 			ClientCert:      "/nonexistent/cert.pem",
 		},
@@ -170,8 +170,8 @@ func TestExtractCNFromCertFile_InvalidDER(t *testing.T) {
 func TestApplyTopicPrefix_NoCert(t *testing.T) {
 	cfg := &Config{
 		MQTT: MQTTConfig{
-			PublishTopic:    "original/publish",
-			AckTopic:        "original/ack",
+			PublishTopic:    tcOriginalPublish,
+			AckTopic:        tcOriginalAck,
 			UseCertCNPrefix: true,
 			ClientCert:      "", // Empty cert path
 		},
@@ -182,10 +182,10 @@ func TestApplyTopicPrefix_NoCert(t *testing.T) {
 	}
 
 	// Topics should remain unchanged when cert path is empty
-	if cfg.MQTT.PublishTopic != "original/publish" {
+	if cfg.MQTT.PublishTopic != tcOriginalPublish {
 		t.Errorf("PublishTopic = %s; want original/publish", cfg.MQTT.PublishTopic)
 	}
-	if cfg.MQTT.AckTopic != "original/ack" {
+	if cfg.MQTT.AckTopic != tcOriginalAck {
 		t.Errorf("AckTopic = %s; want original/ack", cfg.MQTT.AckTopic)
 	}
 }

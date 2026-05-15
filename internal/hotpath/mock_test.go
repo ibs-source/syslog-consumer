@@ -62,7 +62,7 @@ func (m *mockRedis) Close() error {
 // mockPublisher implements mqtt.Publisher for testing.
 type mockPublisher struct {
 	publishFn      func(ctx context.Context, payload message.Payload) error
-	subscribeAckFn func(handler func(message.AckMessage)) error
+	subscribeAckFn func(ctx context.Context, handler func(message.AckMessage)) error
 	closeFn        func() error
 }
 
@@ -73,9 +73,9 @@ func (m *mockPublisher) Publish(ctx context.Context, payload message.Payload) er
 	return nil
 }
 
-func (m *mockPublisher) SubscribeAck(handler func(message.AckMessage)) error {
+func (m *mockPublisher) SubscribeAck(ctx context.Context, handler func(message.AckMessage)) error {
 	if m.subscribeAckFn != nil {
-		return m.subscribeAckFn(handler)
+		return m.subscribeAckFn(ctx, handler)
 	}
 	return nil
 }

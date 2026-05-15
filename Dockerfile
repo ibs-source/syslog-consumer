@@ -1,4 +1,4 @@
-FROM golang:1.25.9-alpine AS build-stage
+FROM golang:1.25.10-alpine AS build-stage
 
 RUN apk update && \
     apk upgrade --no-cache && \
@@ -21,7 +21,7 @@ FROM amd64/alpine:3.23.3
 ENV CERTIFICATE_PATH=/home/app/certificate
 ENV CERTIFICATE_RENEWAL=2
 ENV CERTIFICATE_DEPLOYER=https://TENANT.syslog.ibs.cloud/generate
-ENV CERTIFICATE_CERTIFICATE_DEPLOYER_KEY=pWJ5MQe2xGtkzukPJykXh9ypEVuWMpv9JDsgeyFT5DExzqmAQwrguCGsg86AgdKk88uytjMaLP8dUrzJXxJ3vxirbRMSj8bu9ChfTmgBgpn6k2eAoDUySigXpDtmkT7f
+ENV CERTIFICATE_DEPLOYER_KEY=pWJ5MQe2xGtkzukPJykXh9ypEVuWMpv9JDsgeyFT5DExzqmAQwrguCGsg86AgdKk88uytjMaLP8dUrzJXxJ3vxirbRMSj8bu9ChfTmgBgpn6k2eAoDUySigXpDtmkT7f
 ENV BROKER=ssl://syslog.ibs.cloud:8883
 
 # Certificate renewal interval in seconds (default: 6 hours = 21600)

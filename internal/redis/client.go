@@ -17,8 +17,8 @@ import (
 	"github.com/redis/go-redis/v9/maintnotifications"
 )
 
-// isNoGroupError reports whether err is a Redis NOGROUP (stream or
-// consumer group deleted). Redis prefixes such errors with "NOGROUP".
+// isNoGroupError matches the "NOGROUP" prefix Redis uses when the stream or
+// consumer group has been deleted.
 func isNoGroupError(err error) bool {
 	if err == nil {
 		return false
@@ -26,7 +26,7 @@ func isNoGroupError(err error) bool {
 	return strings.HasPrefix(err.Error(), "NOGROUP")
 }
 
-// Client manages Redis stream operations.
+// Client is the Redis stream consumer used by the hot path.
 type Client struct {
 	rdb                *redis.Client
 	log                *log.Logger
@@ -42,7 +42,7 @@ type Client struct {
 	claimIdle          time.Duration
 	discoveryScanCount int64
 	multiStreamMode    bool
-	streamsArgDirty    atomic.Bool // true when streams list changed; forces streamsArg rebuild
+	streamsArgDirty    atomic.Bool // forces streamsArg rebuild when streams list changed
 }
 
 func newBatchSlicePool(capacity int) sync.Pool {
@@ -54,8 +54,9 @@ func newBatchSlicePool(capacity int) sync.Pool {
 	}
 }
 
-// NewClient creates a new Redis client
-func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
+// NewClient dials Redis with cfg.PingTimeout and discovers streams or pins
+// to cfg.Stream depending on whether cfg.Stream is empty.
+func NewClient(ctx context.Context, cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            cfg.Address,
 		DialTimeout:     cfg.DialTimeout,
@@ -65,19 +66,16 @@ func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 		MinIdleConns:    cfg.MinIdleConns,
 		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
 		ConnMaxLifetime: cfg.ConnMaxLifetime,
-		// Explicitly disable maintenance notifications
-		// This prevents the client from sending extra commands to Redis
-		// which can add unnecessary load.
+		// Maintenance notifications add extra commands and load we don't need.
 		MaintNotificationsConfig: &maintnotifications.Config{
 			Mode: maintnotifications.ModeDisabled,
 		},
 	})
 
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.PingTimeout)
+	pingCtx, cancel := context.WithTimeout(ctx, cfg.PingTimeout)
 	defer cancel()
 
-	if err := rdb.Ping(ctx).Err(); err != nil {
+	if err := rdb.Ping(pingCtx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
@@ -94,33 +92,29 @@ func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 		claimPool:          newBatchSlicePool(cfg.BatchSize),
 	}
 
-	// Determine mode: single-stream or multi-stream
 	if cfg.Stream == "" {
-		// Multi-stream mode: discover all streams
-		logger.Info("Multi-stream mode enabled: discovering Redis streams")
+		logger.Infof(ctx, "Multi-stream mode enabled: discovering Redis streams")
 		streams, err := client.DiscoverStreams(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to discover streams: %w", err)
 		}
 
 		if len(streams) == 0 {
-			logger.Warn("No streams found in Redis, will retry on next refresh")
+			logger.Warnf(ctx, "No streams found in Redis, will retry on next refresh")
 		} else {
-			logger.Info("Discovered %d streams: %v", len(streams), streams)
+			logger.Infof(ctx, "Discovered %d streams: %v", len(streams), streams)
 		}
 
 		client.streams = streams
 		client.multiStreamMode = true
 		client.streamsArgDirty.Store(true)
 	} else {
-		// Single-stream mode: treat as multi-stream with one stream
-		logger.Info("Single-stream mode: consuming from stream '%s'", cfg.Stream)
+		logger.Infof(ctx, "Single-stream mode: consuming from stream '%s'", cfg.Stream)
 		client.streams = []string{cfg.Stream}
 		client.multiStreamMode = false
 		client.streamsArgDirty.Store(true)
 	}
 
-	// Create consumer groups for all streams (1 or more)
 	if err := client.ensureGroups(ctx, client.streams); err != nil {
 		return nil, err
 	}
@@ -128,8 +122,8 @@ func NewClient(cfg *config.RedisConfig, logger *log.Logger) (*Client, error) {
 	return client, nil
 }
 
-// DiscoverStreams discovers all Redis streams using SCAN with server-side TYPE filter.
-// Each SCAN call is O(1); the TYPE filter avoids per-key round-trips.
+// DiscoverStreams lists every Redis key of type stream using SCAN with the
+// server-side TYPE filter to avoid per-key round-trips.
 func (c *Client) DiscoverStreams(ctx context.Context) ([]string, error) {
 	streams := make([]string, 0, c.discoveryScanCount)
 	var cursor uint64
@@ -156,18 +150,18 @@ func (c *Client) ensureGroups(ctx context.Context, streams []string) error {
 		err := c.rdb.XGroupCreateMkStream(ctx, stream, c.groupName, "0").Err()
 		if err != nil {
 			if strings.Contains(err.Error(), "BUSYGROUP") {
-				c.log.Info("Consumer group '%s' already exists for stream '%s', joining existing group", c.groupName, stream)
+				c.log.Infof(ctx, "Consumer group '%s' already exists for stream '%s', joining existing group", c.groupName, stream)
 				continue
 			}
 			return fmt.Errorf("failed to create consumer group for stream %s: %w", stream, err)
 		}
-		c.log.Info("Created consumer group '%s' for stream '%s'", c.groupName, stream)
+		c.log.Infof(ctx, "Created consumer group '%s' for stream '%s'", c.groupName, stream)
 	}
 	return nil
 }
 
-// ReadBatch fetches messages via XREADGROUP. streamsArg is only touched
-// by this function, which runs in a single fetchLoop goroutine.
+// ReadBatch must only be called from a single goroutine: streamsArg is not
+// guarded by the mutex.
 func (c *Client) ReadBatch(ctx context.Context) (message.Batch, error) {
 	c.mu.RLock()
 	streams := c.streams
@@ -227,8 +221,8 @@ func (c *Client) ReadBatch(ctx context.Context) (message.Batch, error) {
 	return message.NewPooledBatch(messages, bp, &c.batchPool), nil
 }
 
-// handleReadError handles XREADGROUP errors, recreating groups on NOGROUP.
-// Returns nil when the error was recovered (caller returns empty batch).
+// handleReadError returns nil when the error was recovered (caller returns
+// an empty batch).
 func (c *Client) handleReadError(ctx context.Context, err error) error {
 	if errors.Is(err, redis.Nil) {
 		return nil
@@ -237,7 +231,7 @@ func (c *Client) handleReadError(ctx context.Context, err error) error {
 	currentStreams := c.streams
 	c.mu.RUnlock()
 	if isNoGroupError(err) {
-		c.log.Warn("Consumer group missing, recreating groups")
+		c.log.Warnf(ctx, "Consumer group missing, recreating groups")
 		if grpErr := c.ensureGroups(ctx, currentStreams); grpErr != nil {
 			return fmt.Errorf(
 				"xreadgroup NOGROUP and recreate failed: %w", grpErr)
@@ -247,13 +241,13 @@ func (c *Client) handleReadError(ctx context.Context, err error) error {
 	return fmt.Errorf("xreadgroup failed: %w", err)
 }
 
-// ClaimIdle rebalances stale pending messages.
+// ClaimIdle reclaims pending messages whose owner has been idle longer than
+// the configured ClaimIdle threshold.
 func (c *Client) ClaimIdle(ctx context.Context) (message.Batch, error) {
 	c.mu.RLock()
 	streams := c.streams
 	c.mu.RUnlock()
 
-	// Borrow a pooled slice to avoid allocating per claim cycle.
 	pv := c.claimPool.Get()
 	bp, ok := pv.(*[]message.Redis)
 	if !ok {
@@ -262,11 +256,10 @@ func (c *Client) ClaimIdle(ctx context.Context) (message.Batch, error) {
 	}
 	allMessages := (*bp)[:0]
 
-	// Claim from all streams (works for both single-stream with 1 element and multi-stream with N elements)
 	for _, stream := range streams {
 		pending, err := c.getPendingMessages(ctx, stream)
 		if err != nil {
-			c.log.Warn("failed to get pending messages for stream %s: %v", stream, err)
+			c.log.Warnf(ctx, "failed to get pending messages for stream %s: %v", stream, err)
 			continue
 		}
 
@@ -276,7 +269,7 @@ func (c *Client) ClaimIdle(ctx context.Context) (message.Batch, error) {
 
 		claimed, err := c.claimMessages(ctx, stream, pending)
 		if err != nil {
-			c.log.Warn("failed to claim messages for stream %s: %v", stream, err)
+			c.log.Warnf(ctx, "failed to claim messages for stream %s: %v", stream, err)
 			continue
 		}
 
@@ -308,9 +301,8 @@ func (c *Client) getPendingMessages(ctx context.Context, stream string) ([]redis
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
-		// Stream or group was deleted; recreate the group and return empty (no pending messages in a fresh group)
 		if isNoGroupError(err) {
-			c.log.Warn("Consumer group missing for stream '%s', recreating", stream)
+			c.log.Warnf(ctx, "Consumer group missing for stream '%s', recreating", stream)
 			if grpErr := c.ensureGroups(ctx, []string{stream}); grpErr != nil {
 				return nil, fmt.Errorf(
 					"xpending NOGROUP and recreate failed for %s: %w",
@@ -347,9 +339,8 @@ func (c *Client) claimMessages(
 	return claimed, nil
 }
 
-// RefreshStreams rediscovers Redis streams and updates the streams
-// list. Called only from refreshLoop (single goroutine) so the
-// RLock/Lock split is safe. Returns the number of new streams added.
+// RefreshStreams must only be called from refreshLoop (single goroutine);
+// the RLock/Lock split relies on that. Returns the number of new streams added.
 func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 	if !c.multiStreamMode {
 		return 0, nil
@@ -368,7 +359,6 @@ func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 	}
 	c.mu.RUnlock()
 
-	// Find new streams
 	var newStreams []string
 	for _, stream := range discoveredStreams {
 		if _, ok := existingStreams[stream]; !ok {
@@ -376,15 +366,13 @@ func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 		}
 	}
 
-	// If we have new streams, create consumer groups and update the list
 	if len(newStreams) > 0 {
-		c.log.Info("Discovered %d new streams: %v", len(newStreams), newStreams)
+		c.log.Infof(ctx, "Discovered %d new streams: %v", len(newStreams), newStreams)
 		if err := c.ensureGroups(ctx, newStreams); err != nil {
 			return 0, fmt.Errorf("failed to create groups for new streams: %w", err)
 		}
 	}
 
-	// Atomically update the streams list and mark streamsArg for rebuild
 	c.mu.Lock()
 	c.streams = discoveredStreams
 	c.mu.Unlock()
@@ -393,19 +381,17 @@ func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 	metrics.StreamsActive.Set(int64(len(discoveredStreams)))
 	metrics.StreamsDiscovered.Add(int64(len(newStreams)))
 
-	// Log if streams were removed
 	if len(discoveredStreams) < prevCount {
-		c.log.Info("Stream count decreased from %d to %d", prevCount, len(discoveredStreams))
+		c.log.Infof(ctx, "Stream count decreased from %d to %d", prevCount, len(discoveredStreams))
 	}
 
 	return len(newStreams), nil
 }
 
-// AckAndDeleteBatch acknowledges and deletes a batch of messages from a Redis stream
-// using a single pipeline round-trip (one XACK + one XDEL for all IDs).
+// AckAndDeleteBatch issues XACK + XDEL in a single pipeline round-trip.
 func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream string) error {
 	if stream == "" {
-		return fmt.Errorf("cannot ACK messages: stream name is empty")
+		return errors.New("cannot ACK messages: stream name is empty")
 	}
 	if len(ids) == 0 {
 		return nil
@@ -418,9 +404,9 @@ func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream str
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		if isNoGroupError(err) {
-			c.log.Warn("Consumer group missing for stream '%s' during batch ACK, recreating", stream)
+			c.log.Warnf(ctx, "Consumer group missing for stream '%s' during batch ACK, recreating", stream)
 			if gerr := c.ensureGroups(ctx, []string{stream}); gerr != nil {
-				c.log.Warn("Failed to recreate group for stream '%s': %v", stream, gerr)
+				c.log.Warnf(ctx, "Failed to recreate group for stream '%s': %v", stream, gerr)
 			}
 			return nil
 		}
@@ -430,7 +416,8 @@ func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream str
 	return nil
 }
 
-// Close closes the Redis client connection
+// Close releases the underlying Redis connection pool; safe on a nil-backed
+// Client (e.g. ones built for tests without an rdb).
 func (c *Client) Close() error {
 	if c.rdb != nil {
 		return c.rdb.Close()
@@ -438,10 +425,9 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// extractFields pulls the "object" and "raw" values from the go-redis
-// field map using a single iteration. Redis stream entries typically have
-// only these two fields, so one range loop is faster than two hash lookups.
-func extractFields(m map[string]interface{}) (object, raw string) {
+// extractFields scans the field map once; Redis stream entries normally hold
+// only "object" and "raw", so one range beats two map lookups.
+func extractFields(m map[string]any) (object, raw string) {
 	for k, v := range m {
 		switch k {
 		case "object":
@@ -457,7 +443,7 @@ func extractFields(m map[string]interface{}) (object, raw string) {
 	return
 }
 
-// Ping checks the Redis connection is alive.
+// Ping verifies the connection; used by the health endpoint.
 func (c *Client) Ping(ctx context.Context) error {
 	return c.rdb.Ping(ctx).Err()
 }

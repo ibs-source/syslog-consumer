@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"syscall"
 	"testing"
@@ -15,6 +15,8 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/mqtt"
 	"github.com/ibs-source/syslog-consumer/internal/redis"
 )
+
+const testStreamName = "test"
 
 // --- lightweight mocks for hotpath.New dependencies ---
 
@@ -35,22 +37,30 @@ func (s *stubRedis) Close() error                                               
 
 type stubPublisher struct{}
 
-func (s *stubPublisher) Publish(_ context.Context, _ message.Payload) error { return nil }
-func (s *stubPublisher) SubscribeAck(_ func(message.AckMessage)) error      { return nil }
-func (s *stubPublisher) Close() error                                       { return nil }
+func (s *stubPublisher) Publish(_ context.Context, _ message.Payload) error {
+	return nil
+}
+func (s *stubPublisher) SubscribeAck(_ context.Context, _ func(message.AckMessage)) error {
+	return nil
+}
+func (s *stubPublisher) Close() error { return nil }
 
 type stubPublisherFail struct {
 	subErr error
 }
 
-func (s *stubPublisherFail) Publish(_ context.Context, _ message.Payload) error { return nil }
-func (s *stubPublisherFail) SubscribeAck(_ func(message.AckMessage)) error      { return s.subErr }
-func (s *stubPublisherFail) Close() error                                       { return nil }
+func (s *stubPublisherFail) Publish(_ context.Context, _ message.Payload) error {
+	return nil
+}
+func (s *stubPublisherFail) SubscribeAck(_ context.Context, _ func(message.AckMessage)) error {
+	return s.subErr
+}
+func (s *stubPublisherFail) Close() error { return nil }
 
 func testCfg() *config.Config {
 	return &config.Config{
 		Redis: config.RedisConfig{
-			Stream:              "test",
+			Stream:              testStreamName,
 			ClaimIdle:           30 * time.Second,
 			CleanupInterval:     1 * time.Minute,
 			ConsumerIdleTimeout: 5 * time.Minute,
@@ -79,7 +89,7 @@ func closeHotPath(t *testing.T, hp *hotpath.HotPath) {
 // with default environment values and returns a valid, non-nil configuration.
 func TestLoadAndLogConfig_DefaultConfig(t *testing.T) {
 	logger := log.New()
-	cfg, err := loadAndLogConfig(logger)
+	cfg, err := loadAndLogConfig(t.Context(), logger)
 	if err != nil {
 		t.Fatalf("loadAndLogConfig() error = %v; want nil with defaults", err)
 	}
@@ -101,7 +111,7 @@ func TestLoadAndLogConfig_DefaultConfig(t *testing.T) {
 func TestLoadAndLogConfig_ValidationError(t *testing.T) {
 	t.Setenv("PIPELINE_BUFFER_CAPACITY", "-1") // Invalid: must be positive
 	logger := log.New()
-	_, err := loadAndLogConfig(logger)
+	_, err := loadAndLogConfig(t.Context(), logger)
 	if err == nil {
 		t.Error("expected validation error for negative buffer capacity")
 	}
@@ -110,7 +120,7 @@ func TestLoadAndLogConfig_ValidationError(t *testing.T) {
 // TestRun_RedisConnectionFailure verifies run() returns 1 when Redis is unreachable.
 func TestRun_RedisConnectionFailure(t *testing.T) {
 	t.Setenv("REDIS_ADDRESS", "localhost:1") // unroutable port → immediate failure
-	result := run()
+	result := run(t.Context())
 	if result != 1 {
 		t.Errorf("run() = %d; want 1 for redis connection failure", result)
 	}
@@ -119,7 +129,7 @@ func TestRun_RedisConnectionFailure(t *testing.T) {
 // TestRun_ConfigError verifies run() returns 1 when config validation fails.
 func TestRun_ConfigError(t *testing.T) {
 	t.Setenv("PIPELINE_BUFFER_CAPACITY", "-1")
-	result := run()
+	result := run(t.Context())
 	if result != 1 {
 		t.Errorf("run() = %d; want 1 for config validation failure", result)
 	}
@@ -131,7 +141,7 @@ func TestCloseServices_NilSafe(t *testing.T) {
 	logger := log.New()
 	cfg := &config.Config{
 		Redis: config.RedisConfig{
-			Stream:          "test",
+			Stream:          testStreamName,
 			ClaimIdle:       30 * time.Second,
 			CleanupInterval: 1 * time.Minute,
 		},
@@ -154,7 +164,7 @@ func TestCloseServices_NilSafe(t *testing.T) {
 	// closeServices takes concrete types; we pass zero-valued structs for redis/mqtt
 	// redis.Client with nil rdb → Close() returns nil
 	// mqtt.Pool with no clients → Close() returns nil
-	closeServices(&redis.Client{}, &mqtt.Pool{}, hp, logger)
+	closeServices(t.Context(), &redis.Client{}, &mqtt.Pool{}, hp, logger)
 }
 
 // --- stubRedisBlocking blocks ReadBatch until context is canceled ---
@@ -186,7 +196,7 @@ func TestRunMainLoop_HotPathError(t *testing.T) {
 
 	hp, err := hotpath.New(
 		&stubRedis{},
-		&stubPublisherFail{subErr: fmt.Errorf("subscribe failed")},
+		&stubPublisherFail{subErr: errors.New("subscribe failed")},
 		cfg, logger,
 	)
 	if err != nil {
@@ -194,7 +204,7 @@ func TestRunMainLoop_HotPathError(t *testing.T) {
 	}
 	defer closeHotPath(t, hp)
 
-	result := runMainLoop(hp, cfg, logger)
+	result := runMainLoop(t.Context(), hp, cfg, logger)
 	if result != 1 {
 		t.Errorf("runMainLoop() = %d; want 1 for hot path error", result)
 	}
@@ -221,7 +231,7 @@ func TestRunMainLoop_SignalGraceful(t *testing.T) {
 		}
 	}()
 
-	result := runMainLoop(hp, cfg, logger)
+	result := runMainLoop(t.Context(), hp, cfg, logger)
 	if result != 0 {
 		t.Errorf("runMainLoop() = %d; want 0 for graceful signal shutdown", result)
 	}
@@ -240,14 +250,14 @@ func TestCloseServices_ErrorPaths(t *testing.T) {
 	}
 
 	// closeServices should not panic even when Close returns errors
-	closeServices(&redis.Client{}, &mqtt.Pool{}, hp, logger)
+	closeServices(t.Context(), &redis.Client{}, &mqtt.Pool{}, hp, logger)
 }
 
 type stubRedisCloseFail struct {
 	stubRedis
 }
 
-func (s *stubRedisCloseFail) Close() error { return fmt.Errorf("redis close error") }
+func (s *stubRedisCloseFail) Close() error { return errors.New("redis close error") }
 
 // TestRunMainLoop_ShutdownTimeout verifies shutdown timeout path when hot path hangs.
 func TestRunMainLoop_ShutdownTimeout(t *testing.T) {
@@ -271,7 +281,7 @@ func TestRunMainLoop_ShutdownTimeout(t *testing.T) {
 		}
 	}()
 
-	result := runMainLoop(hp, cfg, logger)
+	result := runMainLoop(t.Context(), hp, cfg, logger)
 	// Should return 0 (graceful) or 1 (timeout) — either is acceptable
 	_ = result
 }
@@ -315,7 +325,7 @@ func TestRunMainLoop_NormalExit(t *testing.T) {
 		}
 	}()
 
-	result := runMainLoop(hp, cfg, logger)
+	result := runMainLoop(t.Context(), hp, cfg, logger)
 	if result != 0 {
 		t.Errorf("runMainLoop() = %d; want 0", result)
 	}

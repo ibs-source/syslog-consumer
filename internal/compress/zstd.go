@@ -1,7 +1,7 @@
 // Package compress provides Zstandard compression and decompression using
-// channel-based freelists for encoders and decoders.
-// Channel freelists survive GC sweeps unlike sync.Pool, preventing
-// re-creation of heavy zstd codec objects after each GC cycle.
+// channel-based freelists for encoders and decoders. Channel freelists
+// survive GC sweeps (unlike sync.Pool) so the heavy zstd codec objects are
+// not recreated after every GC cycle.
 package compress
 
 import (
@@ -9,14 +9,12 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// cfg holds the compression configuration, set once by Init.
 var cfg *config.CompressConfig
 
 var decoderFree chan *zstd.Decoder
 
-// Init initializes the compression subsystem from config.
-// Must be called once before any Decompress calls (typically from main,
-// after config load). The config pointer is retained — no copy is made.
+// Init must be called once before any Decompress call. The config pointer
+// is retained — no copy is made.
 func Init(c *config.CompressConfig) {
 	cfg = c
 	decoderFree = make(chan *zstd.Decoder, cfg.FreelistSize)
@@ -65,22 +63,19 @@ func putDecoder(d *zstd.Decoder) {
 	}
 }
 
-// NewEncoder returns a new zstd encoder for exclusive use by a single
-// goroutine (e.g. a publish worker). This avoids the channel freelist
-// overhead of Compress when the caller can own the encoder for its lifetime.
+// NewEncoder returns an encoder for exclusive use by a single goroutine
+// (typically a publish worker), avoiding the freelist overhead of Compress.
 func NewEncoder() *zstd.Encoder {
 	return newEncoder()
 }
 
-// EncodeWith compresses src into dst[:0] using the provided encoder.
-// The caller must ensure exclusive access to enc (one encoder per goroutine).
-// This is the zero-overhead path for publish workers that own their encoder.
+// EncodeWith compresses src into dst[:0]. The caller must hold exclusive
+// access to enc.
 func EncodeWith(enc *zstd.Encoder, dst, src []byte) []byte {
 	return enc.EncodeAll(src, dst[:0])
 }
 
-// Decompress decompresses a Zstandard payload into dst[:0].
-// Thread-safe, zero allocations in steady state.
+// Decompress is thread-safe and zero-alloc in steady state.
 func Decompress(dst, src []byte) ([]byte, error) {
 	dec := getDecoder()
 	out, err := dec.DecodeAll(src, dst[:0])
@@ -88,8 +83,7 @@ func Decompress(dst, src []byte) ([]byte, error) {
 	return out, err
 }
 
-// IsCompressed reports whether data is a Zstandard frame.
-// Zstandard magic: 0xFD2FB528 (RFC 8878 §3.1.1).
+// IsCompressed checks for the Zstandard magic 0xFD2FB528 (RFC 8878 §3.1.1).
 func IsCompressed(data []byte) bool {
 	return len(data) >= 4 &&
 		data[0] == 0x28 && data[1] == 0xB5 &&

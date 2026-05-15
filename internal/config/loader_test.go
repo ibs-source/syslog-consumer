@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-const (
-	testRedisAddr  = "localhost:6379"
-	testMQTTBroker = "tcp://localhost:1883"
-)
-
 func TestLoad_Defaults(t *testing.T) {
 	// Clear environment and reset flags
 	clearTestEnv(t)
@@ -23,19 +18,19 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 
 	// Verify Redis defaults
-	if cfg.Redis.Address != testRedisAddr {
-		t.Errorf("Redis.Address = %s; want %s", cfg.Redis.Address, testRedisAddr)
+	if cfg.Redis.Address != defaultRedisAddress {
+		t.Errorf("Redis.Address = %s; want %s", cfg.Redis.Address, defaultRedisAddress)
 	}
-	if cfg.Redis.Stream != "syslog-stream" {
-		t.Errorf("Redis.Stream = %s; want syslog-stream", cfg.Redis.Stream)
+	if cfg.Redis.Stream != defaultStreamName {
+		t.Errorf("Redis.Stream = %s; want %s", cfg.Redis.Stream, defaultStreamName)
 	}
 	if cfg.Redis.BatchSize != 20000 {
 		t.Errorf("Redis.BatchSize = %d; want 20000", cfg.Redis.BatchSize)
 	}
 
 	// Verify MQTT defaults
-	if cfg.MQTT.Broker != testMQTTBroker {
-		t.Errorf("MQTT.Broker = %s; want %s", cfg.MQTT.Broker, testMQTTBroker)
+	if cfg.MQTT.Broker != defaultMQTTBroker {
+		t.Errorf("MQTT.Broker = %s; want %s", cfg.MQTT.Broker, defaultMQTTBroker)
 	}
 	if cfg.MQTT.PoolSize != 25 {
 		t.Errorf("MQTT.PoolSize = %d; want 25", cfg.MQTT.PoolSize)
@@ -99,7 +94,7 @@ func TestLoad_FlagsPrecedence(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
-		"test",
+		tcTest,
 		"-redis-address=redis-flag:6379",
 		"-mqtt-broker=tcp://mqtt-flag:1883",
 	}
@@ -262,7 +257,7 @@ func resetTestFlags(t *testing.T) {
 	t.Cleanup(func() { os.Args = oldArgs })
 
 	// Reset to minimal args
-	os.Args = []string{"test"}
+	os.Args = []string{tcTest}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	resetFlags()
 }

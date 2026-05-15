@@ -11,7 +11,7 @@
 If you discover a security vulnerability in syslog-consumer, please report it responsibly:
 
 1. **Do not** open a public GitHub issue.
-2. Use GitHub's private vulnerability reporting feature, or email the maintainers directly.
+2. Use [GitHub's private vulnerability reporting](https://github.com/ibs-source/syslog-consumer/security/advisories/new) for this repository, or email <security@ibs.srl>.
 3. Include: description, steps to reproduce, and impact assessment.
 4. We will acknowledge receipt within 48 hours and provide a fix timeline.
 
@@ -40,6 +40,7 @@ The pipeline enforces the following bounds to prevent resource exhaustion:
 
 - **TLS/mTLS** for all MQTT connections (`MQTT_TLS_ENABLED=true`)
 - **Non-root** container user in Dockerfile
-- **Hardcoded credentials** — inject real `CERTIFICATE_DEPLOYER_KEY` via runtime secrets
+- **Credentials** — the Dockerfile ships a sandbox `CERTIFICATE_DEPLOYER_KEY` for the isolated test cluster; in production this MUST be overridden at runtime via Docker secrets or an external KMS/vault. Never reuse the baked-in value outside the test cluster.
 - **Certificate lifecycle** managed by `wrapper`/`manager` scripts with automatic renewal
-- **GC tuning**: `GOGC=200`, `GOMEMLIMIT=2GiB`, `GOEXPERIMENT=greenteagc`
+- **GC tuning (runtime, set by the binary if unset)**: `GOGC=200`, `GOMEMLIMIT=2GiB`
+- **GC tuning (build-time, baked into the binary)**: `GOEXPERIMENT=greenteagc`

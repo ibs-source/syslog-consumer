@@ -6,16 +6,14 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
 
-// Publisher is the interface for publishing messages to MQTT
-// Can be implemented by either a single Client or a Pool
+// Publisher is implemented by both Client and Pool.
 type Publisher interface {
 	Publish(ctx context.Context, payload message.Payload) error
-	SubscribeAck(handler func(message.AckMessage)) error
+	SubscribeAck(ctx context.Context, handler func(message.AckMessage)) error
 	Close() error
 }
 
-// Ensure Client implements Publisher
-var _ Publisher = (*Client)(nil)
-
-// Ensure Pool implements Publisher
-var _ Publisher = (*Pool)(nil)
+var (
+	_ Publisher = (*Client)(nil)
+	_ Publisher = (*Pool)(nil)
+)
