@@ -2,4 +2,3 @@
 *.test
 *.out
 *.env
-/testdata/
