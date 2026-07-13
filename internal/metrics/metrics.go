@@ -13,10 +13,16 @@ var (
 	MessagesAcked     = expvar.NewInt("consumer.messages_acked")
 	MessagesNacked    = expvar.NewInt("consumer.messages_nacked")
 	MessagesClaimed   = expvar.NewInt("consumer.messages_claimed")
+	// MessagesSkipped counts empty-body messages acked away as unprocessable.
+	MessagesSkipped = expvar.NewInt("consumer.messages_skipped")
+	// MessagesPoisoned counts messages dropped by the delivery-count cap.
+	MessagesPoisoned = expvar.NewInt("consumer.messages_poisoned")
 
 	FetchErrors   = expvar.NewInt("consumer.errors_fetch")
 	PublishErrors = expvar.NewInt("consumer.errors_publish")
 	AckErrors     = expvar.NewInt("consumer.errors_ack")
+	// AckResubscribeRetries counts failed ACK re-subscribe attempts after reconnect.
+	AckResubscribeRetries = expvar.NewInt("consumer.errors_ack_resubscribe")
 
 	AckQueueDepth = expvar.NewInt("consumer.ack_queue_depth")
 

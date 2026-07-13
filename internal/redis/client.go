@@ -38,6 +38,7 @@ type Client struct {
 	streamsArg         []string
 	mu                 sync.RWMutex // protects streams, streamsArg
 	batchSize          int64
+	claimMaxDeliveries int64
 	blockTimeout       time.Duration
 	claimIdle          time.Duration
 	discoveryScanCount int64
@@ -84,6 +85,7 @@ func NewClient(ctx context.Context, cfg *config.RedisConfig, logger *log.Logger)
 		consumer:           cfg.Consumer,
 		groupName:          cfg.GroupName,
 		batchSize:          int64(cfg.BatchSize),
+		claimMaxDeliveries: int64(cfg.ClaimMaxDeliveries),
 		blockTimeout:       cfg.BlockTimeout,
 		claimIdle:          cfg.ClaimIdle,
 		discoveryScanCount: int64(cfg.DiscoveryScanCount),
@@ -172,6 +174,11 @@ func (c *Client) ReadBatch(ctx context.Context) (message.Batch, error) {
 	}
 
 	if c.streamsArgDirty.CompareAndSwap(true, false) {
+		// Re-snapshot under the lock: a refresh may have swapped streams
+		// between the first read and winning the CAS.
+		c.mu.RLock()
+		streams = c.streams
+		c.mu.RUnlock()
 		n := len(streams)
 		c.streamsArg = c.streamsArg[:0]
 		c.streamsArg = append(c.streamsArg, streams...)
@@ -263,6 +270,7 @@ func (c *Client) ClaimIdle(ctx context.Context) (message.Batch, error) {
 			continue
 		}
 
+		pending = c.dropPoisoned(ctx, stream, pending)
 		if len(pending) == 0 {
 			continue
 		}
@@ -314,6 +322,36 @@ func (c *Client) getPendingMessages(ctx context.Context, stream string) ([]redis
 	}
 
 	return pending, nil
+}
+
+// dropPoisoned acks away pending entries delivered more than the configured
+// cap, so unprocessable messages cannot churn through the claim loop forever.
+func (c *Client) dropPoisoned(
+	ctx context.Context, stream string, pending []redis.XPendingExt,
+) []redis.XPendingExt {
+	if c.claimMaxDeliveries <= 0 {
+		return pending
+	}
+	keep := pending[:0]
+	var poisoned []string
+	for _, p := range pending {
+		if p.RetryCount >= c.claimMaxDeliveries {
+			poisoned = append(poisoned, p.ID)
+			continue
+		}
+		keep = append(keep, p)
+	}
+	if len(poisoned) == 0 {
+		return keep
+	}
+	c.log.Warnf(ctx, "Dropping %d poison messages from stream %s after %d deliveries",
+		len(poisoned), stream, c.claimMaxDeliveries)
+	if _, err := c.AckAndDeleteBatch(ctx, poisoned, stream); err != nil {
+		c.log.Warnf(ctx, "failed to drop poison messages from stream %s: %v", stream, err)
+		return keep
+	}
+	metrics.MessagesPoisoned.Add(int64(len(poisoned)))
+	return keep
 }
 
 func (c *Client) claimMessages(
@@ -388,17 +426,18 @@ func (c *Client) RefreshStreams(ctx context.Context) (int, error) {
 	return len(newStreams), nil
 }
 
-// AckAndDeleteBatch issues XACK + XDEL in a single pipeline round-trip.
-func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream string) error {
+// AckAndDeleteBatch issues XACK + XDEL in a single pipeline round-trip and
+// returns how many messages Redis actually acknowledged.
+func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream string) (int64, error) {
 	if stream == "" {
-		return errors.New("cannot ACK messages: stream name is empty")
+		return 0, errors.New("cannot ACK messages: stream name is empty")
 	}
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	pipe := c.rdb.Pipeline()
-	pipe.XAck(ctx, stream, c.groupName, ids...)
+	ack := pipe.XAck(ctx, stream, c.groupName, ids...)
 	pipe.XDel(ctx, stream, ids...)
 
 	_, err := pipe.Exec(ctx)
@@ -408,12 +447,12 @@ func (c *Client) AckAndDeleteBatch(ctx context.Context, ids []string, stream str
 			if gerr := c.ensureGroups(ctx, []string{stream}); gerr != nil {
 				c.log.Warnf(ctx, "Failed to recreate group for stream '%s': %v", stream, gerr)
 			}
-			return nil
+			return 0, nil
 		}
-		return fmt.Errorf("ack+del pipeline failed for %d messages in stream %s: %w", len(ids), stream, err)
+		return 0, fmt.Errorf("ack+del pipeline failed for %d messages in stream %s: %w", len(ids), stream, err)
 	}
 
-	return nil
+	return ack.Val(), nil
 }
 
 // Close releases the underlying Redis connection pool; safe on a nil-backed

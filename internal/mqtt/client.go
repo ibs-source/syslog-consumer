@@ -17,6 +17,7 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/config"
 	"github.com/ibs-source/syslog-consumer/internal/log"
 	"github.com/ibs-source/syslog-consumer/internal/message"
+	"github.com/ibs-source/syslog-consumer/internal/metrics"
 )
 
 // Client wraps a single paho MQTT connection.
@@ -275,20 +276,34 @@ func (c *Client) IsConnected() bool {
 }
 
 // resubscribeAck is a no-op on the very first connect when ackHandler is nil.
+// It retries with backoff until the subscription lands: a connected client
+// without the ACK subscription would publish forever while never acking, so
+// every reclaim tick would redeliver the whole PEL downstream. Runs on paho's
+// OnConnect goroutine; exits when the connection drops (the next reconnect
+// restarts it) or ctx ends.
 func (c *Client) resubscribeAck(ctx context.Context, mc mqtt.Client) {
 	if c.ackHandler.Load() == nil {
 		return
 	}
 
 	c.log.Infof(ctx, "Re-subscribing to ACK topic after reconnect")
-	token := mc.Subscribe(c.ackTopic, c.qos, func(_ mqtt.Client, msg mqtt.Message) {
-		c.handleAckMessage(ctx, msg.Payload())
-	})
-	if !token.WaitTimeout(c.subscribeTimeout) {
-		c.log.Errorf(ctx, "Failed to re-subscribe to ACK topic: timeout")
-		return
-	}
-	if err := token.Error(); err != nil {
-		c.log.Errorf(ctx, "Failed to re-subscribe to ACK topic: %v", err)
+	for attempt := 1; ; attempt++ {
+		token := mc.Subscribe(c.ackTopic, c.qos, func(_ mqtt.Client, msg mqtt.Message) {
+			c.handleAckMessage(ctx, msg.Payload())
+		})
+		if token.WaitTimeout(c.subscribeTimeout) && token.Error() == nil {
+			if attempt > 1 {
+				c.log.Infof(ctx, "ACK topic re-subscribed after %d attempts", attempt)
+			}
+			return
+		}
+		metrics.AckResubscribeRetries.Add(1)
+		c.log.Errorf(ctx, "Failed to re-subscribe to ACK topic (attempt %d): %v", attempt, token.Error())
+		if ctx.Err() != nil || !c.connected.Load() {
+			return
+		}
+		if retrySleep(ctx, c.connectRetryDelay) {
+			return
+		}
 	}
 }

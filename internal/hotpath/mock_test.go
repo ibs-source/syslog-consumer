@@ -11,7 +11,7 @@ import (
 type mockRedis struct {
 	readBatchFn    func(ctx context.Context) (message.Batch, error)
 	claimIdleFn    func(ctx context.Context) (message.Batch, error)
-	ackAndDeleteFn func(ctx context.Context, ids []string, stream string) error
+	ackAndDeleteFn func(ctx context.Context, ids []string, stream string) (int64, error)
 	cleanupFn      func(ctx context.Context, idle time.Duration) error
 	refreshFn      func(ctx context.Context) (int, error)
 	closeFn        func() error
@@ -31,11 +31,11 @@ func (m *mockRedis) ClaimIdle(ctx context.Context) (message.Batch, error) {
 	return message.Batch{}, nil
 }
 
-func (m *mockRedis) AckAndDeleteBatch(ctx context.Context, ids []string, stream string) error {
+func (m *mockRedis) AckAndDeleteBatch(ctx context.Context, ids []string, stream string) (int64, error) {
 	if m.ackAndDeleteFn != nil {
 		return m.ackAndDeleteFn(ctx, ids, stream)
 	}
-	return nil
+	return int64(len(ids)), nil
 }
 
 func (m *mockRedis) CleanupDeadConsumers(ctx context.Context, idle time.Duration) error {

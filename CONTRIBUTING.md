@@ -96,7 +96,7 @@ make lint
 - **Package Cohesion**: Single responsibility per package
 - **Modularity**: Loose coupling via interfaces
 - **Dependencies**: Avoid circular dependencies, use Go Modules
-- **Structure**: Follow existing layout (`cmd/` for binaries, `internal/` for non-exported packages, `testdata/` for fixtures)
+- **Structure**: Follow existing layout (`cmd/` for binaries, `internal/` for non-exported packages); test fixtures are generated at runtime, never committed
 
 ```
 cmd/consumer/main.go        — Application entry point, signal handling, lifecycle

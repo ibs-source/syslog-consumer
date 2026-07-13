@@ -27,12 +27,15 @@ type LogConfig struct {
 
 // RedisConfig drives the Redis stream consumer and its connection pool.
 type RedisConfig struct {
-	Address             string
-	Stream              string
-	Consumer            string
-	GroupName           string
-	BatchSize           int
-	DiscoveryScanCount  int
+	Address            string
+	Stream             string
+	Consumer           string
+	GroupName          string
+	BatchSize          int
+	DiscoveryScanCount int
+	// ClaimMaxDeliveries drops a pending message after this many deliveries
+	// (poison-message cap). 0 disables the cap.
+	ClaimMaxDeliveries  int
 	BlockTimeout        time.Duration
 	ClaimIdle           time.Duration
 	ConsumerIdleTimeout time.Duration

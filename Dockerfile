@@ -1,4 +1,4 @@
-FROM golang:1.25.10-alpine AS build-stage
+FROM golang:1.26.5-alpine AS build-stage
 
 RUN apk update && \
     apk upgrade --no-cache && \
@@ -13,7 +13,7 @@ COPY . .
 # Override with: docker build --build-arg PGO_PROFILE=other.pgo .
 ARG PGO_PROFILE="default.pgo"
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOEXPERIMENT=greenteagc \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -pgo=${PGO_PROFILE} -trimpath -ldflags="-s -w" -o syslog-consumer ./cmd/consumer
 
 FROM amd64/alpine:3.23.4
@@ -28,7 +28,7 @@ ENV BROKER=ssl://syslog.ibs.cloud:8883
 ENV CERTIFICATE_RENEWAL_INTERVAL=21600
 
 # GC tuning: higher GOGC reduces GC frequency at the cost of more memory.
-# With greenteagc, the GC is already more efficient. GOMEMLIMIT prevents OOM
+# GOMEMLIMIT prevents OOM
 # by triggering GC more aggressively as memory approaches the limit.
 # Override GOMEMLIMIT at deployment based on container memory (target ~80%).
 ENV GOGC=200

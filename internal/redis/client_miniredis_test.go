@@ -360,9 +360,12 @@ func TestAckAndDeleteBatch_Success(t *testing.T) {
 	// Read to register the message in the pending list
 	mustReadBatch(t, c)
 
-	err := c.AckAndDeleteBatch(t.Context(), []string{id}, testStreamS1)
+	acked, err := c.AckAndDeleteBatch(t.Context(), []string{id}, testStreamS1)
 	if err != nil {
 		t.Errorf("AckAndDeleteBatch() error = %v", err)
+	}
+	if acked != 1 {
+		t.Errorf("AckAndDeleteBatch() acked = %d, want 1", acked)
 	}
 }
 
@@ -370,7 +373,7 @@ func TestAckAndDeleteBatch_EmptyStream(t *testing.T) {
 	s := startMiniredis(t)
 	c := newTestClient(t, s, testStreamS1)
 
-	err := c.AckAndDeleteBatch(t.Context(), []string{"1-0"}, "")
+	_, err := c.AckAndDeleteBatch(t.Context(), []string{"1-0"}, "")
 	if err == nil {
 		t.Error("AckAndDeleteBatch() with empty stream should error")
 	}
@@ -602,7 +605,57 @@ func TestAckAndDeleteBatch_NOGROUP_Recovery(t *testing.T) {
 	// Create stream without a consumer group for this client
 	mustXAdd(t, s, "nogroup-stream", "k", "v")
 	// This exercises the NOGROUP recovery path in AckAndDeleteBatch.
-	if err := c.AckAndDeleteBatch(t.Context(), []string{"0-0"}, "nogroup-stream"); err != nil {
+	if _, err := c.AckAndDeleteBatch(t.Context(), []string{"0-0"}, "nogroup-stream"); err != nil {
 		t.Fatalf("AckAndDeleteBatch(): %v", err)
+	}
+}
+
+func TestClaimIdle_PoisonCapDropsExhaustedMessages(t *testing.T) {
+	s := startMiniredis(t)
+	c := newTestClient(t, s, testStreamS1)
+	c.claimMaxDeliveries = 1
+	c.claimIdle = 0 // every pending entry qualifies immediately
+
+	id := mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
+	mustReadBatch(t, c) // delivery #1 → RetryCount reaches the cap
+
+	batch, err := c.ClaimIdle(t.Context())
+	if err != nil {
+		t.Fatalf("ClaimIdle() error = %v", err)
+	}
+	if len(batch.Items) != 0 {
+		t.Errorf("ClaimIdle() returned %d items, want 0 (poison dropped, not reclaimed)", len(batch.Items))
+	}
+	batch.Release()
+
+	pending, err := c.getPendingMessages(t.Context(), testStreamS1)
+	if err != nil {
+		t.Fatalf("getPendingMessages() error = %v", err)
+	}
+	for _, p := range pending {
+		if p.ID == id {
+			t.Errorf("poison message %s still pending after cap drop", id)
+		}
+	}
+}
+
+func TestClaimIdle_PoisonCapDisabled(t *testing.T) {
+	s := startMiniredis(t)
+	c := newTestClient(t, s, testStreamS1)
+	c.claimMaxDeliveries = 0 // disabled
+	c.claimIdle = 0
+
+	mustXAdd(t, s, testStreamS1, "k", "v")
+	mustEnsureGroups(t, c, testStreamS1)
+	mustReadBatch(t, c)
+
+	batch, err := c.ClaimIdle(t.Context())
+	if err != nil {
+		t.Fatalf("ClaimIdle() error = %v", err)
+	}
+	defer batch.Release()
+	if len(batch.Items) != 1 {
+		t.Errorf("ClaimIdle() returned %d items, want 1 (cap disabled keeps reclaiming)", len(batch.Items))
 	}
 }

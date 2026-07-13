@@ -49,6 +49,9 @@ func loadRedisInts(cfg *RedisConfig) {
 	if v := getEnvInt("REDIS_DISCOVERY_SCAN_COUNT"); v != 0 {
 		cfg.DiscoveryScanCount = v
 	}
+	if v := getEnvInt("REDIS_CLAIM_MAX_DELIVERIES"); v != 0 {
+		cfg.ClaimMaxDeliveries = v
+	}
 }
 
 func loadRedisTimeouts(cfg *RedisConfig) {

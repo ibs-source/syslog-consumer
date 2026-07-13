@@ -331,7 +331,11 @@ func (hp *HotPath) publishBatch(
 	for i := range batch {
 		msg := &batch[i]
 		if msg.Object == "" && msg.Raw == "" {
+			// Unprocessable forever: ack it away or the claim loop would
+			// reclaim it eternally.
 			hp.log.Warnf(ctx, "Skipping message %s with empty body", msg.ID)
+			metrics.MessagesSkipped.Add(1)
+			hp.routeAck(ctx, message.AckMessage{Stream: msg.Stream, IDs: []string{msg.ID}, Ack: true})
 			continue
 		}
 		bw.Append(hp.buildPayload(builder, msg))
@@ -470,14 +474,20 @@ func (hp *HotPath) refreshLoop(ctx context.Context) error {
 // safe: the claim loop reclaims them on the next start.
 func (hp *HotPath) makeAckHandler(lifeCtx context.Context) func(message.AckMessage) {
 	return func(ack message.AckMessage) {
-		idx := streamShard(ack.Stream, len(hp.ackChans))
-		select {
-		case hp.ackChans[idx] <- ack:
-			metrics.AckQueueDepth.Add(1)
-		case <-lifeCtx.Done():
-			if hp.log.DebugEnabled(lifeCtx) {
-				hp.log.Debugf(lifeCtx, "Dropping ACK for %v during shutdown", ack.IDs)
-			}
+		hp.routeAck(lifeCtx, ack)
+	}
+}
+
+// routeAck delivers an ACK to its stream-sharded worker, dropping it when ctx
+// is done (the claim loop reclaims unacked messages on the next start).
+func (hp *HotPath) routeAck(ctx context.Context, ack message.AckMessage) {
+	idx := streamShard(ack.Stream, len(hp.ackChans))
+	select {
+	case hp.ackChans[idx] <- ack:
+		metrics.AckQueueDepth.Add(1)
+	case <-ctx.Done():
+		if hp.log.DebugEnabled(ctx) {
+			hp.log.Debugf(ctx, "Dropping ACK for %v during shutdown", ack.IDs)
 		}
 	}
 }
@@ -488,7 +498,7 @@ func streamShard(stream string, shards int) int {
 		h ^= uint32(stream[i])
 		h *= 16777619
 	}
-	return int(h) % shards
+	return int(h % uint32(shards)) //nolint:gosec // G115: shards is a small positive worker count
 }
 
 func (hp *HotPath) ackWorker(ctx context.Context, ch <-chan message.AckMessage) {
@@ -563,14 +573,11 @@ func (hp *HotPath) ackWorkerSingle(ctx context.Context, ch <-chan message.AckMes
 			}
 
 			metrics.AckQueueDepth.Add(-1)
-			stream = ack.Stream
-			if ack.Ack {
-				p.ackIDs = append(p.ackIDs, ack.IDs...)
-			} else {
-				p.nackCount += len(ack.IDs)
+			if stream != "" && ack.Stream != stream {
+				flush()
 			}
-
-			if len(p.ackIDs)+p.nackCount >= hp.ackBatchSize {
+			stream = ack.Stream
+			if accumulateInto(p, ack) >= hp.ackBatchSize {
 				flush()
 				continue
 			}
@@ -595,13 +602,17 @@ func (hp *HotPath) accumulateACK(pending map[string]*pendingACK, ack message.Ack
 		pending[ack.Stream] = p
 	}
 
+	return accumulateInto(p, ack) >= hp.ackBatchSize
+}
+
+// accumulateInto folds one ACK into p and returns the pending total.
+func accumulateInto(p *pendingACK, ack message.AckMessage) int {
 	if ack.Ack {
 		p.ackIDs = append(p.ackIDs, ack.IDs...)
 	} else {
 		p.nackCount += len(ack.IDs)
 	}
-
-	return len(p.ackIDs)+p.nackCount >= hp.ackBatchSize
+	return len(p.ackIDs) + p.nackCount
 }
 
 type pendingACK struct {
@@ -630,7 +641,7 @@ func putPendingACK(p *pendingACK) {
 func (hp *HotPath) flushACKs(parentCtx context.Context, stream string, p *pendingACK) {
 	if len(p.ackIDs) > 0 {
 		ctx, cancel := context.WithTimeout(parentCtx, hp.ackTimeout)
-		err := hp.redis.AckAndDeleteBatch(ctx, p.ackIDs, stream)
+		acked, err := hp.redis.AckAndDeleteBatch(ctx, p.ackIDs, stream)
 		cancel()
 
 		if err != nil {
@@ -638,9 +649,11 @@ func (hp *HotPath) flushACKs(parentCtx context.Context, stream string, p *pendin
 			metrics.AckErrors.Add(1)
 		} else {
 			if hp.log.DebugEnabled(parentCtx) {
-				hp.log.Debugf(parentCtx, "ACKed %d messages from stream %s", len(p.ackIDs), stream)
+				hp.log.Debugf(parentCtx, "ACKed %d messages from stream %s", acked, stream)
 			}
-			metrics.MessagesAcked.Add(int64(len(p.ackIDs)))
+			// XAck's own count keeps duplicate ACK deliveries (one per pool
+			// subscription) from inflating the metric.
+			metrics.MessagesAcked.Add(acked)
 		}
 	}
 

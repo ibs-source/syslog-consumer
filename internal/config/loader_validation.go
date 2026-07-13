@@ -41,6 +41,9 @@ func validateRedis(cfg *RedisConfig) error {
 	if cfg.BatchSize < 1 {
 		return errors.New("redis batch size must be positive")
 	}
+	if cfg.ClaimMaxDeliveries < 0 {
+		return errors.New("redis claim max deliveries must be >= 0")
+	}
 	if cfg.DiscoveryScanCount < 1 {
 		return errors.New("redis discovery scan count must be positive")
 	}

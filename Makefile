@@ -17,6 +17,7 @@ pgo:
 	go test -bench=. -benchmem -count=5 -run='^$$' -cpuprofile=compress.prof ./internal/compress/
 	go tool pprof -proto hotpath.prof mqtt.prof compress.prof > $(PGO_PROFILE)
 	rm -f hotpath.prof mqtt.prof compress.prof
+	rm -f hotpath.test mqtt.test compress.test
 	@echo "Profile written to $(PGO_PROFILE) — rebuild with: make build-pgo"
 
 test:
@@ -37,7 +38,7 @@ vet:
 	go vet ./...
 
 clean:
-	rm -f $(BINARY) coverage.out *.prof
+	rm -f $(BINARY) coverage.out *.prof *.test
 
 docker-build:
 	docker build -t $(BINARY):latest .

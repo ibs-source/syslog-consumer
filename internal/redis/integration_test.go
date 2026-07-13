@@ -15,6 +15,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const fieldObject = "object"
+
+func closeQuietly(t *testing.T, c interface{ Close() error }) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
 func setupRedisConfig(t *testing.T) *config.RedisConfig {
 	t.Helper()
 
@@ -36,23 +45,23 @@ func TestIntegration_RedisConnection(t *testing.T) {
 	logger := log.New()
 
 	t.Run("Connect", func(t *testing.T) {
-		client, err := NewClient(cfg, logger)
+		client, err := NewClient(t.Context(), cfg, logger)
 		if err != nil {
 			t.Skipf("Skipping Redis test: %v (Redis not available?)", err)
 			return
 		}
-		defer func() { _ = client.Close() }()
+		defer closeQuietly(t, client)
 
 		t.Log("Successfully connected to Redis")
 	})
 
 	t.Run("EnsureGroups", func(t *testing.T) {
-		client, err := NewClient(cfg, logger)
+		client, err := NewClient(t.Context(), cfg, logger)
 		if err != nil {
 			t.Skip("Redis not available")
 			return
 		}
-		defer func() { _ = client.Close() }()
+		defer closeQuietly(t, client)
 
 		ctx := t.Context()
 		err = client.ensureGroups(ctx, []string{cfg.Stream})
@@ -70,12 +79,12 @@ func TestIntegration_RedisOperations(t *testing.T) {
 	cfg.Stream = "test-stream-ops"
 	logger := log.New()
 
-	client, err := NewClient(cfg, logger)
+	client, err := NewClient(t.Context(), cfg, logger)
 	if err != nil {
 		t.Skip("Redis not available")
 		return
 	}
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ctx := t.Context()
 	defer client.rdb.Del(ctx, cfg.Stream)
@@ -126,7 +135,7 @@ func addTestMessage(t *testing.T, client *Client, cfg *config.RedisConfig) strin
 		Values: map[string]any{
 			"source":    "10.0.0.1",
 			"timestamp": "1234567890",
-			"object":    `{"message":"test payload","severity":5}`,
+			fieldObject: `{"message":"test payload","severity":5}`,
 			"raw":       "raw data",
 		},
 	}).Result()
@@ -181,8 +190,8 @@ func ackAndDeleteMessage(t *testing.T, client *Client, batch message.Batch) {
 	t.Helper()
 	ctx := t.Context()
 	item := batch.Items[0]
-	if err := client.AckAndDelete(ctx, item.ID, item.Stream); err != nil {
-		t.Fatalf("AckAndDelete failed: %v", err)
+	if _, err := client.AckAndDeleteBatch(ctx, []string{item.ID}, item.Stream); err != nil {
+		t.Fatalf("AckAndDeleteBatch failed: %v", err)
 	}
 }
 
@@ -192,7 +201,7 @@ func testClaimIdle(t *testing.T, client *Client, cfg *config.RedisConfig) {
 
 	_, err := client.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: cfg.Stream,
-		Values: map[string]any{"object": "idle test"},
+		Values: map[string]any{fieldObject: "idle test"},
 	}).Result()
 	if err != nil {
 		t.Fatalf("Failed to add message: %v", err)
@@ -222,7 +231,9 @@ func testClaimIdle(t *testing.T, client *Client, cfg *config.RedisConfig) {
 
 	if len(claimed.Items) > 0 {
 		for _, msg := range claimed.Items {
-			_ = client.AckAndDelete(ctx, msg)
+			if _, err := client.AckAndDeleteBatch(ctx, []string{msg.ID}, msg.Stream); err != nil {
+				t.Logf("cleanup ack failed for %s: %v", msg.ID, err)
+			}
 		}
 	}
 }
@@ -235,7 +246,7 @@ func testAckAndDeleteMultiple(t *testing.T, client *Client, cfg *config.RedisCon
 	for i := range 3 {
 		msgID, err := client.rdb.XAdd(ctx, &redis.XAddArgs{
 			Stream: cfg.Stream,
-			Values: map[string]any{"object": "multi test"},
+			Values: map[string]any{fieldObject: "multi test"},
 		}).Result()
 		if err != nil {
 			t.Fatalf("Failed to add message %d: %v", i, err)
@@ -253,11 +264,8 @@ func testAckAndDeleteMultiple(t *testing.T, client *Client, cfg *config.RedisCon
 		t.Fatalf("Expected 3 messages, got %d", len(batch.Items))
 	}
 
-	for _, msg := range batch.Items {
-		err = client.AckAndDelete(ctx, msg)
-		if err != nil {
-			t.Fatalf("AckAndDelete failed: %v", err)
-		}
+	if _, err := client.AckAndDeleteBatch(ctx, ids, cfg.Stream); err != nil {
+		t.Fatalf("AckAndDeleteBatch failed: %v", err)
 	}
 	t.Log("Successfully acknowledged and deleted multiple messages")
 }
@@ -268,7 +276,7 @@ func TestIntegration_RedisClose(t *testing.T) {
 	cfg.Stream = "test-stream-close"
 	logger := log.New()
 
-	client, err := NewClient(cfg, logger)
+	client, err := NewClient(t.Context(), cfg, logger)
 	if err != nil {
 		t.Skip("Redis not available")
 		return
@@ -294,12 +302,12 @@ func TestIntegration_RedisCleanup(t *testing.T) {
 	cfg.Stream = "test-stream-cleanup"
 	logger := log.New()
 
-	client, err := NewClient(cfg, logger)
+	client, err := NewClient(t.Context(), cfg, logger)
 	if err != nil {
 		t.Skip("Redis not available")
 		return
 	}
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 	defer func() { _ = client.rdb.Del(t.Context(), cfg.Stream) }()
 
 	t.Run("CleanupDeadConsumers", func(t *testing.T) { testCleanupDeadConsumers(t, client, cfg) })
@@ -328,11 +336,13 @@ func testCleanupDeadConsumers(t *testing.T, client *Client, cfg *config.RedisCon
 	_ = client.rdb.XDel(ctx, cfg.Stream, msgID)
 }
 
-func ensureOurConsumerExists(t *testing.T, client *Client, cfg *config.RedisConfig) {
+func ensureOurConsumerExists(t *testing.T, client *Client, _ *config.RedisConfig) {
 	t.Helper()
 	// Read a batch to ensure our consumer is registered
 	readCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	_, _ = client.ReadBatch(readCtx)
+	if _, err := client.ReadBatch(readCtx); err != nil {
+		t.Logf("consumer registration read: %v", err)
+	}
 	cancel()
 }
 
@@ -343,7 +353,7 @@ func createDeadConsumerForTest(
 	ctx := t.Context()
 	msgID, err := client.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: cfg.Stream,
-		Values: map[string]any{"object": "cleanup test"},
+		Values: map[string]any{fieldObject: "cleanup test"},
 	}).Result()
 	if err != nil {
 		t.Fatalf("Failed to add message: %v", err)
@@ -400,7 +410,7 @@ func TestIntegration_RedisErrors(t *testing.T) {
 		badCfg := *cfg
 		badCfg.Address = "invalid:99999"
 
-		_, err := NewClient(&badCfg, logger)
+		_, err := NewClient(t.Context(), &badCfg, logger)
 		if err == nil {
 			t.Error("Expected error for invalid address, got nil")
 		}
@@ -413,7 +423,7 @@ func TestIntegration_RedisErrors(t *testing.T) {
 		badCfg.Address = "10.255.255.1:6379"
 		badCfg.PingTimeout = 100 * time.Millisecond
 
-		_, err := NewClient(&badCfg, logger)
+		_, err := NewClient(t.Context(), &badCfg, logger)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ubyte-source/go-jsonfast"
 
+	"github.com/ibs-source/syslog-consumer/internal/compress"
 	"github.com/ibs-source/syslog-consumer/internal/config"
 	"github.com/ibs-source/syslog-consumer/internal/log"
 	"github.com/ibs-source/syslog-consumer/internal/message"
@@ -20,6 +21,8 @@ import (
 
 const (
 	testMsgID1     = "1-0"
+	testMsgID2     = "2-0"
+	testStreamA    = "sA"
 	testStreamS1   = "s1"
 	testStreamSimp = "s"
 	testObjectKV   = `{"k":"v"}`
@@ -240,7 +243,7 @@ func TestHandleAck_Bounded(t *testing.T) {
 	var totalFlushed atomic.Int64
 
 	r := &mockRedis{
-		ackAndDeleteFn: func(_ context.Context, ids []string, _ string) error {
+		ackAndDeleteFn: func(_ context.Context, ids []string, _ string) (int64, error) {
 			cur := concurrent.Add(1)
 			for {
 				old := maxConcurrent.Load()
@@ -251,7 +254,7 @@ func TestHandleAck_Bounded(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 			concurrent.Add(-1)
 			totalFlushed.Add(int64(len(ids)))
-			return nil
+			return int64(len(ids)), nil
 		},
 	}
 
@@ -292,10 +295,10 @@ func TestFlushACKs_Success(t *testing.T) {
 	var calledIDs []string
 	var calledStream string
 	r := &mockRedis{
-		ackAndDeleteFn: func(_ context.Context, ids []string, stream string) error {
+		ackAndDeleteFn: func(_ context.Context, ids []string, stream string) (int64, error) {
 			calledIDs = ids
 			calledStream = stream
-			return nil
+			return int64(len(ids)), nil
 		},
 	}
 
@@ -315,9 +318,9 @@ func TestFlushACKs_Success(t *testing.T) {
 func TestFlushACKs_NackOnly(t *testing.T) {
 	called := false
 	r := &mockRedis{
-		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) error {
+		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) (int64, error) {
 			called = true
-			return nil
+			return 0, nil
 		},
 	}
 
@@ -336,9 +339,9 @@ func TestFlushACKs_NackOnly(t *testing.T) {
 
 func TestFlushACKs_LifecycleContextCancelled(t *testing.T) {
 	r := &mockRedis{
-		ackAndDeleteFn: func(ctx context.Context, _ []string, _ string) error {
+		ackAndDeleteFn: func(ctx context.Context, _ []string, _ string) (int64, error) {
 			<-ctx.Done()
-			return ctx.Err()
+			return 0, ctx.Err()
 		},
 	}
 
@@ -397,7 +400,7 @@ var buildPayloadTests = []struct {
 	{
 		name: "syslog without structured_data",
 		msg: message.Redis{
-			ID:     "2-0",
+			ID:     testMsgID2,
 			Stream: testStreamSimp,
 			Object: `{"hostname":"router1","severity":6,"message":"hello"}`,
 			Raw:    "raw line",
@@ -1013,9 +1016,9 @@ func TestRun_MultiStreamMode(t *testing.T) {
 
 func TestHandleAck_DropDuringShutdown(t *testing.T) {
 	r := &mockRedis{
-		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) error {
+		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) (int64, error) {
 			t.Error("AckAndDeleteBatch should not be called during shutdown")
-			return nil
+			return 0, nil
 		},
 	}
 
@@ -1046,8 +1049,8 @@ func TestHandleAck_DropDuringShutdown(t *testing.T) {
 
 func TestFlushACKs_AckAndDeleteError(t *testing.T) {
 	r := &mockRedis{
-		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) error {
-			return errors.New("redis error")
+		ackAndDeleteFn: func(_ context.Context, _ []string, _ string) (int64, error) {
+			return 0, errors.New("redis error")
 		},
 	}
 
@@ -1059,4 +1062,163 @@ func TestFlushACKs_AckAndDeleteError(t *testing.T) {
 
 	// Should not panic — just logs error
 	hp.flushACKs(t.Context(), testStreamSimp, &pendingACK{ackIDs: []string{"x"}})
+}
+
+func multiStreamConfig() *config.Config {
+	cfg := testConfig()
+	cfg.Redis.Stream = ""
+	cfg.Pipeline.AckBatchSize = 100
+	cfg.Pipeline.AckFlushInterval = time.Hour
+	return cfg
+}
+
+func TestAckWorker_MultiStream_AccumulatesPerStream(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string][]string{}
+	r := &mockRedis{
+		ackAndDeleteFn: func(_ context.Context, ids []string, stream string) (int64, error) {
+			mu.Lock()
+			got[stream] = append(got[stream], ids...)
+			mu.Unlock()
+			return int64(len(ids)), nil
+		},
+	}
+	hp, err := New(r, &mockPublisher{}, multiStreamConfig(), log.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer closeHotPath(t, hp)
+
+	ch := make(chan message.AckMessage, 8)
+	done := make(chan struct{})
+	go func() { hp.ackWorker(t.Context(), ch); close(done) }()
+
+	ch <- message.AckMessage{Stream: testStreamA, IDs: []string{testMsgID1, testMsgID2}, Ack: true}
+	ch <- message.AckMessage{Stream: "sB", IDs: []string{"3-0"}, Ack: true}
+	ch <- message.AckMessage{Stream: testStreamA, IDs: []string{"4-0"}, Ack: false}
+	close(ch)
+	<-done
+
+	if !reflect.DeepEqual(got[testStreamA], []string{testMsgID1, testMsgID2}) {
+		t.Errorf("sA acked = %v, want [1-0 2-0] (nack must not be acked)", got[testStreamA])
+	}
+	if !reflect.DeepEqual(got["sB"], []string{"3-0"}) {
+		t.Errorf("sB acked = %v, want [3-0]", got["sB"])
+	}
+}
+
+func TestAckWorker_MultiStream_BatchSizeFlush(t *testing.T) {
+	cfg := multiStreamConfig()
+	cfg.Pipeline.AckBatchSize = 2
+	flushed := make(chan []string, 2)
+	r := &mockRedis{
+		ackAndDeleteFn: func(_ context.Context, ids []string, _ string) (int64, error) {
+			flushed <- append([]string(nil), ids...)
+			return int64(len(ids)), nil
+		},
+	}
+	hp, err := New(r, &mockPublisher{}, cfg, log.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer closeHotPath(t, hp)
+
+	ch := make(chan message.AckMessage, 4)
+	done := make(chan struct{})
+	go func() { hp.ackWorker(t.Context(), ch); close(done) }()
+
+	ch <- message.AckMessage{Stream: testStreamA, IDs: []string{testMsgID1, testMsgID2}, Ack: true}
+	select {
+	case ids := <-flushed:
+		if !reflect.DeepEqual(ids, []string{testMsgID1, testMsgID2}) {
+			t.Errorf("flushed = %v, want [1-0 2-0]", ids)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("batch-size threshold did not trigger a flush")
+	}
+	close(ch)
+	<-done
+}
+
+func TestAckWorkerSingle_StreamSwitchFlushesPrevious(t *testing.T) {
+	cfg := testConfig()
+	cfg.Pipeline.AckBatchSize = 100
+	cfg.Pipeline.AckFlushInterval = time.Hour
+	type call struct {
+		stream string
+		ids    []string
+	}
+	var mu sync.Mutex
+	var calls []call
+	r := &mockRedis{
+		ackAndDeleteFn: func(_ context.Context, ids []string, stream string) (int64, error) {
+			mu.Lock()
+			calls = append(calls, call{stream, append([]string(nil), ids...)})
+			mu.Unlock()
+			return int64(len(ids)), nil
+		},
+	}
+	hp, err := New(r, &mockPublisher{}, cfg, log.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer closeHotPath(t, hp)
+
+	ch := make(chan message.AckMessage, 4)
+	done := make(chan struct{})
+	go func() { hp.ackWorkerSingle(t.Context(), ch); close(done) }()
+
+	ch <- message.AckMessage{Stream: testStreamA, IDs: []string{testMsgID1}, Ack: true}
+	ch <- message.AckMessage{Stream: "sB", IDs: []string{testMsgID2}, Ack: true}
+	close(ch)
+	<-done
+
+	want := []call{{testStreamA, []string{testMsgID1}}, {"sB", []string{testMsgID2}}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("calls = %v, want %v (stream switch must flush the previous stream)", calls, want)
+	}
+}
+
+func TestPublishBatch_EmptyBodyAckedAway(t *testing.T) {
+	hp, err := New(&mockRedis{}, &mockPublisher{}, testConfig(), log.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer closeHotPath(t, hp)
+
+	builder := jsonfast.New(256)
+	enc := compress.NewEncoder()
+	bw := jsonfast.NewBatchWriter(256)
+	var compressed []byte
+	published := 0
+	publishFn := func(context.Context, message.Payload) error { published++; return nil }
+
+	batch := []message.Redis{
+		{ID: testMsgID1, Stream: "sX"},
+		{ID: testMsgID2, Stream: "sX", Object: testObjectKV},
+	}
+	hp.publishBatch(t.Context(), builder, enc, batch, bw, &compressed, publishFn)
+
+	if published != 1 {
+		t.Errorf("published = %d, want 1 (only the non-empty message)", published)
+	}
+	idx := streamShard("sX", len(hp.ackChans))
+	select {
+	case ack := <-hp.ackChans[idx]:
+		if !ack.Ack || ack.Stream != "sX" || !reflect.DeepEqual(ack.IDs, []string{testMsgID1}) {
+			t.Errorf("skip-ack = %+v, want ack=true stream=sX ids=[1-0]", ack)
+		}
+	default:
+		t.Fatal("empty-body message must be acked away or it reclaims forever")
+	}
+}
+
+func TestStreamShard_InRange(t *testing.T) {
+	for _, s := range []string{"", "a", "kernel", strings.Repeat("x", 300)} {
+		for shards := 1; shards <= 8; shards++ {
+			if idx := streamShard(s, shards); idx < 0 || idx >= shards {
+				t.Fatalf("streamShard(%q, %d) = %d out of range", s, shards, idx)
+			}
+		}
+	}
 }

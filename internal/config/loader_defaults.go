@@ -23,6 +23,7 @@ func defaultRedisConfig() RedisConfig {
 		GroupName:           defaultRedisGroup,
 		BatchSize:           20000,
 		DiscoveryScanCount:  1000,
+		ClaimMaxDeliveries:  32,
 		BlockTimeout:        1 * time.Second,
 		ClaimIdle:           10 * time.Second,
 		ConsumerIdleTimeout: 5 * time.Minute,

@@ -28,8 +28,8 @@ func (s *stubRedis) ReadBatch(_ context.Context) (message.Batch, error) {
 func (s *stubRedis) ClaimIdle(_ context.Context) (message.Batch, error) {
 	return message.Batch{}, nil
 }
-func (s *stubRedis) AckAndDeleteBatch(_ context.Context, _ []string, _ string) error {
-	return nil
+func (s *stubRedis) AckAndDeleteBatch(_ context.Context, _ []string, _ string) (int64, error) {
+	return 0, nil
 }
 func (s *stubRedis) CleanupDeadConsumers(_ context.Context, _ time.Duration) error { return nil }
 func (s *stubRedis) RefreshStreams(_ context.Context) (int, error)                 { return 0, nil }
@@ -179,8 +179,8 @@ func (s *stubRedisBlocking) ClaimIdle(ctx context.Context) (message.Batch, error
 	<-ctx.Done()
 	return message.Batch{}, ctx.Err()
 }
-func (s *stubRedisBlocking) AckAndDeleteBatch(_ context.Context, _ []string, _ string) error {
-	return nil
+func (s *stubRedisBlocking) AckAndDeleteBatch(_ context.Context, _ []string, _ string) (int64, error) {
+	return 0, nil
 }
 func (s *stubRedisBlocking) CleanupDeadConsumers(_ context.Context, _ time.Duration) error {
 	return nil

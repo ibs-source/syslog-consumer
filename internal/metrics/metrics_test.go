@@ -14,9 +14,12 @@ func TestExpvarRegistration(t *testing.T) {
 		"consumer.messages_acked",
 		"consumer.messages_nacked",
 		"consumer.messages_claimed",
+		"consumer.messages_skipped",
+		"consumer.messages_poisoned",
 		"consumer.errors_fetch",
 		"consumer.errors_publish",
 		"consumer.errors_ack",
+		"consumer.errors_ack_resubscribe",
 		"consumer.ack_queue_depth",
 		"consumer.streams_active",
 		"consumer.streams_discovered",
@@ -71,9 +74,9 @@ func TestExpvarPointers(t *testing.T) {
 	}
 }
 
-// TestExpvarCount verifies we have exactly 13 counters (catches accidental additions/removals).
+// TestExpvarCount verifies we have exactly 16 counters (catches accidental additions/removals).
 func TestExpvarCount(t *testing.T) {
-	const wantCount = 13
+	const wantCount = 16
 	count := 0
 	expvar.Do(func(kv expvar.KeyValue) {
 		// Filter to our namespace; expvar.Do iterates all registered vars

@@ -29,12 +29,12 @@ func TestCleanupDeadConsumers_Integration(t *testing.T) {
 	cfg := &fullCfg.Redis
 
 	logger := log.New()
-	client, err := NewClient(cfg, logger)
+	client, err := NewClient(t.Context(), cfg, logger)
 	if err != nil {
 		t.Skip("Redis not available, skipping integration test")
 		return
 	}
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ctx := t.Context()
 	defer client.rdb.Del(ctx, cfg.Stream)

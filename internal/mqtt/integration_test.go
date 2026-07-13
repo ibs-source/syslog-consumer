@@ -3,7 +3,19 @@
 package mqtt
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/tls"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,10 +24,27 @@ import (
 	"github.com/ibs-source/syslog-consumer/internal/message"
 )
 
+const (
+	// The broker is shared; isolation comes from the tenant client
+	// certificate. Tests authenticate as the dedicated "github" tenant,
+	// whose certificates are issued by the deployer at
+	// https://github.syslog.ibs.cloud/generate (see the manager script).
+	defaultTestBroker   = "ssl://syslog.ibs.cloud:8883"
+	defaultTestTenant   = "github"
+	defaultTestDeployer = "https://TENANT.syslog.ibs.cloud/generate"
+)
+
+func closeQuietly(t *testing.T, c interface{ Close() error }) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
 // newConnectedClient is a test helper that creates and connects a client.
 func newConnectedClient(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) *Client {
 	t.Helper()
-	client, err := NewClient(cfg, logger)
+	client, err := NewClient(t.Context(), cfg, logger)
 	if err != nil {
 		t.Fatalf("Failed to create MQTT client: %v", err)
 	}
@@ -27,24 +56,83 @@ func newConnectedClient(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger
 	return client
 }
 
-// setupIntegrationConfig configures environment and loads MQTT config for integration tests
+// setupIntegrationConfig resolves broker and certificates for integration
+// tests. Certificates come from explicit env paths or, like the container's
+// manager script, as a fresh bundle from the certificate deployer; the test
+// skips when neither source is configured or the deployer is unreachable.
 func setupIntegrationConfig(t *testing.T) *config.MQTTConfig {
 	t.Helper()
 
-	// Set integration test configuration
-	t.Setenv("MQTT_BROKER", "ssl://syslog.ibs.cloud:8883")
-	t.Setenv("MQTT_TLS_ENABLED", "true")
-	t.Setenv("MQTT_CA_CERT", "../../testdata/authority.pem")
-	t.Setenv("MQTT_CLIENT_CERT", "../../testdata/certificate.pem")
-	t.Setenv("MQTT_CLIENT_KEY", "../../testdata/key.pem")
+	broker := os.Getenv("MQTT_BROKER")
+	if broker == "" {
+		broker = defaultTestBroker
+	}
 
-	// Load config using proper config loader
+	ca, cert, key := os.Getenv("MQTT_CA_CERT"), os.Getenv("MQTT_CLIENT_CERT"), os.Getenv("MQTT_CLIENT_KEY")
+	if ca == "" || cert == "" || key == "" {
+		deployer, apiKey := os.Getenv("CERTIFICATE_DEPLOYER"), os.Getenv("CERTIFICATE_DEPLOYER_KEY")
+		if deployer == "" {
+			deployer = defaultTestDeployer
+		}
+		if apiKey == "" {
+			t.Skip("MQTT integration: set MQTT_CA_CERT/MQTT_CLIENT_CERT/MQTT_CLIENT_KEY " +
+				"or CERTIFICATE_DEPLOYER_KEY")
+		}
+		tenant := os.Getenv("TENANT")
+		if tenant == "" {
+			tenant = defaultTestTenant
+		}
+		var err error
+		ca, cert, key, err = runManagerUpdate(t, deployer, apiKey, tenant)
+		if err != nil {
+			t.Skipf("MQTT integration: certificate deployer unavailable: %v", err)
+		}
+	}
+
+	t.Setenv("MQTT_BROKER", broker)
+	t.Setenv("MQTT_TLS_ENABLED", "true")
+	t.Setenv("MQTT_CA_CERT", ca)
+	t.Setenv("MQTT_CLIENT_CERT", cert)
+	t.Setenv("MQTT_CLIENT_KEY", key)
+
 	fullCfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
 	return &fullCfg.MQTT
+}
+
+// runManagerUpdate obtains a fresh certificate bundle by running the
+// repository's manager script — the exact code path the container uses
+// (expiration/CRL checks, deployer download, extraction).
+func runManagerUpdate(t *testing.T, deployer, apiKey, tenant string) (ca, cert, key string, err error) {
+	t.Helper()
+	dir := t.TempDir()
+
+	cmd := exec.CommandContext(t.Context(), "bash", "../../manager", "update")
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"CERTIFICATE_DEPLOYER=" + deployer,
+		"CERTIFICATE_DEPLOYER_KEY=" + apiKey,
+		"CERTIFICATE_RENEWAL=30",
+		"CERTIFICATE_PATH=" + dir,
+		"TENANT=" + tenant,
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", "", fmt.Errorf("manager update: %w: %s", err, out)
+	}
+
+	ca = filepath.Join(dir, "authority.pem")
+	cert = filepath.Join(dir, "certificate.pem")
+	key = filepath.Join(dir, "key.pem")
+	for _, p := range []string{ca, cert, key} {
+		if _, statErr := os.Stat(p); statErr != nil {
+			return "", "", "", fmt.Errorf("manager did not produce %s: %s", filepath.Base(p), out)
+		}
+	}
+	return ca, cert, key, nil
 }
 
 // TestIntegration_MQTTConnection tests real MQTT connection with TLS
@@ -63,20 +151,20 @@ func TestIntegration_MQTTConnection(t *testing.T) {
 func testMQTTConnect(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 	t.Helper()
 	client := newConnectedClient(t, cfg, logger)
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 	t.Log("Successfully connected to MQTT broker with TLS")
 }
 
 func testMQTTPublish(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 	t.Helper()
 	client := newConnectedClient(t, cfg, logger)
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	testPayload := []byte(`{"test":"integration","timestamp":"2025-01-08T12:00:00Z"}`)
-	err = client.Publish(ctx, testPayload)
+	err := client.Publish(ctx, testPayload)
 	if err != nil {
 		t.Fatalf("Failed to publish message: %v", err)
 	}
@@ -86,15 +174,14 @@ func testMQTTPublish(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 func testMQTTPublishMultiple(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 	t.Helper()
 	client := newConnectedClient(t, cfg, logger)
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	for i := range 10 {
 		payload := []byte(`{"test":"multiple","index":` + string(rune(i+'0')) + `}`)
-		err = client.Publish(ctx, payload)
-		if err != nil {
+		if err := client.Publish(ctx, payload); err != nil {
 			t.Fatalf("Failed to publish message %d: %v", i, err)
 		}
 	}
@@ -104,10 +191,10 @@ func testMQTTPublishMultiple(t *testing.T, cfg *config.MQTTConfig, logger *log.L
 func testMQTTSubscribe(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 	t.Helper()
 	client := newConnectedClient(t, cfg, logger)
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ackReceived := make(chan message.AckMessage, 1)
-	err = client.SubscribeAck(func(ack message.AckMessage) {
+	err := client.SubscribeAck(t.Context(), func(ack message.AckMessage) {
 		ackReceived <- ack
 	})
 	if err != nil {
@@ -120,10 +207,10 @@ func testMQTTSubscribe(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger)
 func testMQTTPublishAndSubscribe(t *testing.T, cfg *config.MQTTConfig, logger *log.Logger) {
 	t.Helper()
 	client := newConnectedClient(t, cfg, logger)
-	defer func() { _ = client.Close() }()
+	defer closeQuietly(t, client)
 
 	ackReceived := make(chan message.AckMessage, 10)
-	err = client.SubscribeAck(func(ack message.AckMessage) {
+	err := client.SubscribeAck(t.Context(), func(ack message.AckMessage) {
 		select {
 		case ackReceived <- ack:
 		default:
@@ -166,7 +253,7 @@ func testCreatePool(t *testing.T, cfg *config.MQTTConfig, poolSize int, logger *
 	if err != nil {
 		t.Fatalf("Failed to create MQTT pool: %v", err)
 	}
-	defer func() { _ = pool.Close() }()
+	defer closeQuietly(t, pool)
 
 	t.Logf("Successfully created MQTT pool with %d connections", poolSize)
 }
@@ -177,7 +264,7 @@ func testPublishWithPool(t *testing.T, cfg *config.MQTTConfig, poolSize int, log
 	if err != nil {
 		t.Fatalf("Failed to create MQTT pool: %v", err)
 	}
-	defer func() { _ = pool.Close() }()
+	defer closeQuietly(t, pool)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -198,10 +285,10 @@ func testPoolSubscribeAck(t *testing.T, cfg *config.MQTTConfig, poolSize int, lo
 	if err != nil {
 		t.Fatalf("Failed to create MQTT pool: %v", err)
 	}
-	defer func() { _ = pool.Close() }()
+	defer closeQuietly(t, pool)
 
 	ackReceived := make(chan message.AckMessage, 10)
-	err = pool.SubscribeAck(func(ack message.AckMessage) {
+	err = pool.SubscribeAck(t.Context(), func(ack message.AckMessage) {
 		select {
 		case ackReceived <- ack:
 		default:
@@ -222,7 +309,7 @@ func testPoolConcurrentPublish(t *testing.T, cfg *config.MQTTConfig, poolSize in
 	if err != nil {
 		t.Fatalf("Failed to create MQTT pool: %v", err)
 	}
-	defer func() { _ = pool.Close() }()
+	defer closeQuietly(t, pool)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
@@ -232,9 +319,8 @@ func testPoolConcurrentPublish(t *testing.T, cfg *config.MQTTConfig, poolSize in
 		go func(goroutineID int) {
 			for i := range 5 {
 				payload := []byte(
-					`{"test":"concurrent","goroutine":` +
-						string(rune(goroutineID+'0')) +
-						`,"msg":` + string(rune(i+'0')) + `}`)
+					`{"test":"concurrent","goroutine":` + strconv.Itoa(goroutineID) +
+						`,"msg":` + strconv.Itoa(i) + `}`)
 				if err := pool.Publish(ctx, payload); err != nil {
 					done <- err
 					return
@@ -244,7 +330,7 @@ func testPoolConcurrentPublish(t *testing.T, cfg *config.MQTTConfig, poolSize in
 		}(g)
 	}
 
-	for g := range 5 {
+	for range 5 {
 		if err := <-done; err != nil {
 			t.Fatalf("Concurrent publish failed: %v", err)
 		}
@@ -318,14 +404,14 @@ func TestIntegration_ReconnectScenario(t *testing.T) {
 			// Publish a message
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			payload := []byte(`{"test":"reconnect","iteration":` + string(rune(i+'0')) + `}`)
-			err = client.Publish(ctx, payload)
+			err := client.Publish(ctx, payload)
 			cancel()
 			if err != nil {
 				t.Fatalf("Failed to publish on iteration %d: %v", i, err)
 			}
 
 			// Close connection
-			_ = client.Close()
+			closeQuietly(t, client)
 
 			// Small delay between cycles
 			time.Sleep(100 * time.Millisecond)
@@ -343,7 +429,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 
 	t.Run("PublishTimeout", func(t *testing.T) {
 		client := newConnectedClient(t, cfg, logger)
-		defer func() { _ = client.Close() }()
+		defer closeQuietly(t, client)
 
 		// Create a context that times out immediately
 		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Nanosecond)
@@ -352,7 +438,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // Ensure context is expired
 
 		payload := []byte(`{"test":"timeout"}`)
-		err = client.Publish(ctx, payload)
+		err := client.Publish(ctx, payload)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -362,7 +448,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 
 	t.Run("LargePayload", func(t *testing.T) {
 		client := newConnectedClient(t, cfg, logger)
-		defer func() { _ = client.Close() }()
+		defer closeQuietly(t, client)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -373,11 +459,77 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 			largePayload[i] = byte(i % 256)
 		}
 
-		err = client.Publish(ctx, largePayload)
+		err := client.Publish(ctx, largePayload)
 		if err != nil {
 			t.Logf("Large payload rejected (expected for some brokers): %v", err)
 		} else {
 			t.Log("Successfully published large payload")
 		}
 	})
+}
+
+// TestManagerUpdate_MockDeployer proves the whole certificate flow by running
+// the real manager script against a local mock serving the same tar.gz bundle
+// the deployer does.
+func TestManagerUpdate_MockDeployer(t *testing.T) {
+	if exec.CommandContext(t.Context(), "ping", "-c", "1", "-W", "2", "8.8.8.8").Run() != nil {
+		t.Skip("manager requires ICMP connectivity")
+	}
+
+	caPath, certPath, keyPath := genTestCerts(t)
+	bundle := buildCertBundle(t, caPath, certPath, keyPath)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "test-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(bundle) //nolint:errcheck // test server
+	}))
+	defer srv.Close()
+
+	ca, cert, key, err := runManagerUpdate(t, srv.URL, "test-key", defaultTestTenant)
+	if err != nil {
+		t.Fatalf("runManagerUpdate() error = %v", err)
+	}
+	if _, pairErr := tls.LoadX509KeyPair(cert, key); pairErr != nil {
+		t.Errorf("fetched cert/key pair does not load: %v", pairErr)
+	}
+	caPEM, caErr := os.ReadFile(ca) //nolint:gosec // G304: temp path from t.TempDir
+	if caErr != nil || !strings.Contains(string(caPEM), "BEGIN CERTIFICATE") {
+		t.Errorf("fetched CA is not a certificate (err=%v)", caErr)
+	}
+
+	if _, _, _, err := runManagerUpdate(t, srv.URL, "wrong-key", defaultTestTenant); err == nil {
+		t.Error("expected error with wrong API key")
+	}
+}
+
+func buildCertBundle(t *testing.T, paths ...string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, p := range paths {
+		data, err := os.ReadFile(p) //nolint:gosec // G304: temp path from t.TempDir
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Name: filepath.Base(p), Mode: 0o600, Size: int64(len(data)),
+		}); err != nil {
+			t.Fatalf("tar header: %v", err)
+		}
+		if _, err := tw.Write(data); err != nil {
+			t.Fatalf("tar write: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
 }

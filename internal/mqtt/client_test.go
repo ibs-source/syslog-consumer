@@ -2,8 +2,16 @@ package mqtt
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -186,9 +194,10 @@ func testTLSDisabled(t *testing.T) {
 
 func testValidTLSWithCA(t *testing.T) {
 	t.Helper()
+	caPath, _, _ := genTestCerts(t)
 	cfg := &config.MQTTConfig{
 		TLSEnabled: true,
-		CACert:     "../../testdata/authority.pem",
+		CACert:     caPath,
 	}
 
 	tlsConfig, err := newTLSConfig(cfg)
@@ -211,11 +220,12 @@ func testValidTLSWithCA(t *testing.T) {
 
 func testValidTLSWithClientCert(t *testing.T) {
 	t.Helper()
+	caPath, certPath, keyPath := genTestCerts(t)
 	cfg := &config.MQTTConfig{
 		TLSEnabled: true,
-		CACert:     "../../testdata/authority.pem",
-		ClientCert: "../../testdata/certificate.pem",
-		ClientKey:  "../../testdata/key.pem",
+		CACert:     caPath,
+		ClientCert: certPath,
+		ClientKey:  keyPath,
 	}
 
 	tlsConfig, err := newTLSConfig(cfg)
@@ -278,10 +288,11 @@ func testInvalidClientCert(t *testing.T) {
 
 func testMismatchedClientCertKey(t *testing.T) {
 	t.Helper()
+	caPath, certPath, _ := genTestCerts(t)
 	cfg := &config.MQTTConfig{
 		TLSEnabled: true,
-		CACert:     "../../testdata/authority.pem",
-		ClientCert: "../../testdata/certificate.pem",
+		CACert:     caPath,
+		ClientCert: certPath,
 		ClientKey:  "/nonexistent/key.pem",
 	}
 
@@ -311,10 +322,11 @@ func testEmptyCACert(t *testing.T) {
 
 func testOnlyClientCertNoCA(t *testing.T) {
 	t.Helper()
+	_, certPath, keyPath := genTestCerts(t)
 	cfg := &config.MQTTConfig{
 		TLSEnabled: true,
-		ClientCert: "../../testdata/certificate.pem",
-		ClientKey:  "../../testdata/key.pem",
+		ClientCert: certPath,
+		ClientKey:  keyPath,
 	}
 
 	tlsConfig, err := newTLSConfig(cfg)
@@ -329,9 +341,13 @@ func testOnlyClientCertNoCA(t *testing.T) {
 
 func testCorruptedCACert(t *testing.T) {
 	t.Helper()
+	garbage := filepath.Join(t.TempDir(), "garbage.pem")
+	if err := os.WriteFile(garbage, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatalf("write garbage file: %v", err)
+	}
 	cfg := &config.MQTTConfig{
 		TLSEnabled: true,
-		CACert:     "../../testdata/README.md", // Not a cert file
+		CACert:     garbage,
 	}
 
 	_, err := newTLSConfig(cfg)
@@ -869,4 +885,112 @@ func TestClientClose_NotConnected_NoDisconnect(t *testing.T) {
 	if mock.disconnectCalled {
 		t.Error("Disconnect should not be called when not connected")
 	}
+}
+
+func TestResubscribeAck_RetriesUntilSuccess(t *testing.T) {
+	attempts := 0
+	mock := &mockPahoClient{
+		subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
+			attempts++
+			if attempts < 3 {
+				return &mockPahoToken{err: errors.New("subscribe failed")}
+			}
+			return &mockPahoToken{}
+		},
+	}
+	c := &Client{
+		ackTopic: tcTopicAck, qos: 0,
+		subscribeTimeout: time.Second, connectRetryDelay: time.Millisecond,
+		log: log.New(),
+	}
+	c.connected.Store(true)
+	handler := func(_ message.AckMessage) {}
+	c.ackHandler.Store(&handler)
+
+	c.resubscribeAck(t.Context(), mock)
+	if attempts != 3 {
+		t.Errorf("attempts = %d, want 3 (retry with backoff until the subscription lands)", attempts)
+	}
+}
+
+func TestResubscribeAck_StopsWhenDisconnected(t *testing.T) {
+	attempts := 0
+	mock := &mockPahoClient{
+		subscribeFn: func(_ string, _ byte, _ paho.MessageHandler) paho.Token {
+			attempts++
+			return &mockPahoToken{err: errors.New("subscribe failed")}
+		},
+	}
+	c := &Client{
+		ackTopic: tcTopicAck, qos: 0,
+		subscribeTimeout: time.Second, connectRetryDelay: time.Millisecond,
+		log: log.New(),
+	}
+	handler := func(_ message.AckMessage) {}
+	c.ackHandler.Store(&handler)
+
+	c.resubscribeAck(t.Context(), mock)
+	if attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (a dropped connection defers to the next reconnect)", attempts)
+	}
+}
+
+// genTestCerts writes a freshly generated self-signed CA plus a client
+// cert/key pair into a temp dir: no committed key material, no expiry rot.
+func genTestCerts(t *testing.T) (caPath, certPath, keyPath string) {
+	t.Helper()
+	dir := t.TempDir()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	caTpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
+	clientTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "test-client"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	clientDER, err := x509.CreateCertificate(rand.Reader, clientTpl, caTpl, &clientKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create client cert: %v", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(clientKey)
+	if err != nil {
+		t.Fatalf("marshal client key: %v", err)
+	}
+
+	caPath = writePEM(t, dir, "authority.pem", "CERTIFICATE", caDER)
+	certPath = writePEM(t, dir, "certificate.pem", "CERTIFICATE", clientDER)
+	keyPath = writePEM(t, dir, "key.pem", "PRIVATE KEY", keyDER)
+	return caPath, certPath, keyPath
+}
+
+func writePEM(t *testing.T, dir, name, blockType string, der []byte) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der}), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	return p
 }

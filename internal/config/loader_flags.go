@@ -13,6 +13,7 @@ var (
 	flagRedisConsumer        = flag.String("redis-consumer", "", "Redis consumer name")
 	flagRedisGroupName       = flag.String("redis-group-name", "", "Redis consumer group name")
 	flagRedisBatchSize       = flag.Int("redis-batch-size", 0, "Redis batch size")
+	flagRedisClaimMaxDeliv   = flag.Int("redis-claim-max-deliveries", 0, "Drop after N deliveries (0 = unlimited)")
 	flagRedisBlockTimeout    = flag.Duration("redis-block-timeout", 0, "Redis block timeout")
 	flagRedisClaimIdle       = flag.Duration("redis-claim-idle", 0, "Redis claim idle time")
 	flagRedisConsumerIdle    = flag.Duration("redis-consumer-idle-timeout", 0, "Redis consumer idle timeout")
@@ -142,6 +143,9 @@ func applyRedisFlagTimeouts(cfg *RedisConfig) {
 	}
 	if *flagRedisClaimIdle != 0 {
 		cfg.ClaimIdle = *flagRedisClaimIdle
+	}
+	if *flagRedisClaimMaxDeliv != 0 {
+		cfg.ClaimMaxDeliveries = *flagRedisClaimMaxDeliv
 	}
 	if *flagRedisConsumerIdle != 0 {
 		cfg.ConsumerIdleTimeout = *flagRedisConsumerIdle

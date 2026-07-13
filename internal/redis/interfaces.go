@@ -14,8 +14,10 @@ import (
 type StreamClient interface {
 	ReadBatch(ctx context.Context) (message.Batch, error)
 	ClaimIdle(ctx context.Context) (message.Batch, error)
-	// AckAndDeleteBatch issues XACK + XDEL in a single pipeline round-trip.
-	AckAndDeleteBatch(ctx context.Context, ids []string, stream string) error
+	// AckAndDeleteBatch issues XACK + XDEL in a single pipeline round-trip and
+	// returns the number of messages actually acknowledged, so duplicate ACKs
+	// (idempotent re-acks) do not inflate caller metrics.
+	AckAndDeleteBatch(ctx context.Context, ids []string, stream string) (int64, error)
 	CleanupDeadConsumers(ctx context.Context, idleTimeout time.Duration) error
 	// RefreshStreams rediscovers streams in multi-stream mode and returns the
 	// number of newly discovered ones.
