@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/klauspost/compress v1.19.0
+	github.com/klauspost/compress v1.19.1
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/ubyte-source/go-jsonfast v0.2.7
 	golang.org/x/sync v0.22.0
