@@ -16,7 +16,7 @@ ARG PGO_PROFILE="default.pgo"
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -pgo=${PGO_PROFILE} -trimpath -ldflags="-s -w" -o syslog-consumer ./cmd/consumer
 
-FROM amd64/alpine:3.24.2
+FROM amd64/alpine:3.24.3
 
 ENV CERTIFICATE_PATH=/home/app/certificate
 ENV CERTIFICATE_RENEWAL=2
